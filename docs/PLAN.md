@@ -2810,6 +2810,31 @@ policy); FAIL -> stays opt-in and is recorded. The AH gate measured the same
 3 flags as +1.9pp against the legacy 156-error denominator; under v3 those
 same 3 hits are +7.3pp - the arithmetic the validator always deserved.
 
+**Result 2026-10-09 (first re-adjudication run).**
+`scripts/eval_date_flags_v3.py`, DML, ~2 s/page; raw JSON
+`out/date_flags_v3_*.json` (gitignored).
+
+| Set | Role | off v3 R@10 | on v3 R@10 | flags / true | text | gate |
+|---|---|---|---|---|---|---|
+| `nepali_pdf_v2` full-41 `ne` | target | 0.7317 | **0.8049** (+7.32pp) | 3 / 3 | identical | **PASS** (all 5 clauses) |
+| `heidata_printed` full-69 `ne` | other | 0.8750 | 0.8750 | 1 / 1 | identical | **FAIL**: `queue_not_larger` (+1) |
+| `cornell_real` full-16 `en` | other | 0.3663 | 0.3663 | 0 / 0 | identical | **PASS** |
+
+Legacy numbers reproduce the AH gate exactly (v2 0.3846 -> 0.4038, +1.9pp;
+cornell `en` legacy R@10 0.40), so the arms are faithful. The letterpress
+firing is `sankaracarya1925_p001` token `20141418` (conf 99.1): v3-corrupt (a
+true token error) but not a date - the 8-digit bare-date rule reads it as
+2014-14-18. So the clause failed on one *true* flag that displaced nothing
+(R@10/P@10 unchanged), and the flag itself exposes a semantic weakness of the
+validator on non-date digit blobs.
+
+**Decision (per pre-registration).** One clause failed -> `date_flags` stays
+opt-in, default off, recorded here. The `queue_not_larger` intent (no
+suspicion noise on non-target sets) is already covered by the 1.0 flag
+precision and the unchanged R@10/P@10; narrowing the clause (e.g. to false
+flags or top-10 displacement) is an owner decision and, if taken, must be
+written before any re-run.
+
 **Reproduce.** `python scripts/eval_digit_content.py --data-dir
 data/doc_eval/nepali_pdf_v2` (add `--limit 10` for hard-10; `--lang en` for
 cornell en); attribution `python scripts/attrib_digit_errors.py --data-dir

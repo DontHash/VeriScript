@@ -24,7 +24,10 @@ All notable changes to this project are documented here. The format follows
   exposes queue precision (v2 v3 P@10 0.094): artifact-flag noise, not
   recognition, is now the visible queue problem. Full record + the
   pre-registered `date_flags` v3 re-adjudication clauses: docs/PLAN.md
-  Appendix AN.
+  Appendix AN. First re-adjudication result: v2 target **PASS** (content
+  R@10 0.7317 -> 0.8049, 3/3 flag precision, text identical); letterpress
+  **FAIL** on the queue-size clause (one true flag, no displacement) - stays
+  opt-in per pre-registration; cornell `en` PASS.
 
 ## [1.5.0] - 2026-10-03
 
