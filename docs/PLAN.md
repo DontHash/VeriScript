@@ -2876,3 +2876,63 @@ data/doc_eval/nepali_pdf_v2` (add `--limit 10` for hard-10; `--lang en` for
 cornell en); attribution `python scripts/attrib_digit_errors.py --data-dir
 data/doc_eval/nepali_pdf_v2`; tests `python -m pytest tests/test_digit_content.py`.
 
+## Appendix AO - queue composition + the digit-first review queue (2026-10-09)
+
+**Question.** The corrected metric exposes queue precision (v2 P@10 0.094
+before the date-flag adoption). What occupies the top-10, and can noise be
+removed without losing content hits?
+
+**Method.** `scripts/eval_queue_composition.py` ran the shipped flag path on
+`nepali_pdf_v2` full-41 with product defaults (Devanagari re-pass + adopted
+date flags), scored v3 content errors, then re-ranked the same tokens under
+counterfactuals (raw JSON `out/queue_composition_v2.json`, gitignored).
+
+**Baseline.** R@10 **0.8049** (33/41), P@10 **0.1038**, 318 top-10 slots.
+Missed errors: **8, all unflagged** (0 flagged-but-outranked) - suppression
+cannot recover recall; only new signals can.
+
+**What fills the slots** (top signatures): clean `invalid_sequence` 88 slots,
+clean `script_mismatch` 60, clean `unknown_word` 47, legacy
+`digit_conflict` 19, clean `digit_conflict` 15, content `digit_conflict` 8,
+then a long tail. Note: `unknown_word` requires the optional lexicon; this
+workstation has it (the published legacy §0b baselines ran without - hence
+their 266 slots vs 318 here). Environment disclosure, not a behavior change.
+
+**Drop-one-flag arms** (source suppression; tokens whose only flags are the
+dropped one leave the queue):
+
+| dropped | R@10 | P@10 | slots |
+|---|---|---|---|
+| `unknown_word` | 0.8049 | 0.1218 | 271 |
+| `low_conf` | 0.8049 | 0.1044 | 316 |
+| `script_mismatch` | 0.7561 | 0.1123 | 276 |
+| `invalid_sequence` | 0.7317 | 0.1310 | 229 |
+| `invalid_format` | 0.7317 | 0.0943 | 318 |
+| **digit-only queue** (rank digit-bearing flagged tokens only) | **0.8049** | **0.2089** | **158** |
+
+**Finding.** Word-level flags with real recall value (`script_mismatch`,
+`invalid_sequence`) cannot be dropped wholesale - they hold 2-3 content hits
+each. The free win is structural: restricting the *number queue* to
+digit-bearing tokens keeps **every** content hit (R@10 unchanged) while
+doubling precision and halving review slots. Word flags are not lost - they
+belong to a text-review section, not the numbers queue.
+
+**Pre-registered gate - digit-first review queue** (next implementation;
+`review_queue` stays as the generic primitive, a new digit section is what
+the metric and the studio number-queue use):
+
+| Clause | Bar |
+|---|---|
+| `content_R10_not_worse` on `nepali_pdf_v2` full-41 | >= 0.8049 (equal expected) |
+| `content_P10_plus` on the same | >= 0.154 (baseline +0.05; candidate measured +0.105) |
+| `content_R10/P10_not_worse` on `heidata_printed`, `cornell_real` (`en`) | not worse |
+| `word_review_preserved` | every non-digit flagged token keeps a visible review section; suppressed-from-numbers count reported, no silent drop |
+| `text_identical` | no token text or flag ever edited by queue shaping |
+
+Adoption: the digit section becomes the default number queue in studio/export;
+word flags stay a separate section; the library's generic `review_queue`
+remains unchanged for callers that want everything.
+
+**Reproduce.** `python scripts/eval_queue_composition.py --data-dir
+data/doc_eval/nepali_pdf_v2`.
+
