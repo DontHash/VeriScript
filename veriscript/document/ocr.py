@@ -1219,6 +1219,37 @@ def review_queue(tokens: List["Token"], top_k: Optional[int] = None) -> List["To
     return ranked[:top_k] if top_k else ranked
 
 
+def digit_review_queue(tokens: List["Token"],
+                       top_k: Optional[int] = None) -> List["Token"]:
+    """Number-review section: flagged digit-bearing tokens, riskiest first.
+
+    The product surface for number trust (docs/PLAN.md Appendix AO): the
+    generic `review_queue` keeps all flagged tokens; this section is its
+    digit-bearing subset with the same ranking.
+    """
+    risky = [t for t in tokens if t.flags and t.has_digits]
+    ranked = sorted(risky, key=lambda t: (-token_risk(t), t.bbox[1], t.bbox[0]))
+    return ranked[:top_k] if top_k else ranked
+
+
+def text_review_queue(tokens: List["Token"],
+                      top_k: Optional[int] = None) -> List["Token"]:
+    """Text-review section: flagged tokens without digits, riskiest first."""
+    risky = [t for t in tokens if t.flags and not t.has_digits]
+    ranked = sorted(risky, key=lambda t: (-token_risk(t), t.bbox[1], t.bbox[0]))
+    return ranked[:top_k] if top_k else ranked
+
+
+def review_queue_sections(tokens: List["Token"]) -> Dict[str, List["Token"]]:
+    """The review queue split into its number and text sections (Appendix AO).
+
+    A partition of `review_queue`: every flagged token appears exactly once
+    (numbers first), so sectioning never drops a token.
+    """
+    return {"number": digit_review_queue(tokens),
+            "text": text_review_queue(tokens)}
+
+
 def _digits_of(text: str) -> str:
     return "".join(re.findall(r"\d+", text))
 

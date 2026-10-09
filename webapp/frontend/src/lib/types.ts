@@ -26,6 +26,8 @@ export interface QueueItem {
   bbox: [number, number, number, number] | null;
   /** Additive harness evidence; absent or empty on untouched runs. */
   suggestions?: Suggestion[];
+  /** Review section (Appendix AO): numbers first, text flags after. */
+  section?: "number" | "text" | null;
 }
 
 export interface RunMeta {

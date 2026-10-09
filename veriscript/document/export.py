@@ -229,9 +229,11 @@ def transcript_md_text(result: OCRResult) -> str:
     Deterministic (no timestamps): the same OCR result always produces the
     same bytes. The review table is omitted when nothing was flagged.
     """
-    from veriscript.document.ocr import review_queue
+    from veriscript.document.ocr import digit_review_queue, text_review_queue
 
-    review = review_queue(result.tokens)
+    numbers = digit_review_queue(result.tokens)
+    texts = text_review_queue(result.tokens)
+    review = numbers + texts
     low = sum(1 for t in result.tokens if "low_conf" in t.flags)
     conflicts = sum(1 for t in result.tokens if "digit_conflict" in t.flags)
 
@@ -243,19 +245,24 @@ def transcript_md_text(result: OCRResult) -> str:
     ]
     body.extend(t.text for t in result.tokens if t.text)
     if review:
-        body += [
-            "",
-            "## Review queue",
-            "",
-            "| token | flags | alternative | conf |",
-            "|---|---|---|---|",
-        ]
-        for tok in review:
-            text = (tok.text or "").replace("|", "\\|").replace("\n", " ")
-            alt = (tok.alt_text or "").replace("|", "\\|").replace("\n", " ")
-            alt_cell = f"`{alt}`" if alt else "—"
-            body.append(f"| `{text}` | {', '.join(tok.flags)} | {alt_cell} | "
-                        f"{tok.conf:.0f} |")
+        body += ["", "## Review queue"]
+        for heading, group in (("### Numbers", numbers),
+                               ("### Text", texts)):
+            if not group:
+                continue
+            body += [
+                "",
+                heading,
+                "",
+                "| token | flags | alternative | conf |",
+                "|---|---|---|---|",
+            ]
+            for tok in group:
+                text = (tok.text or "").replace("|", "\\|").replace("\n", " ")
+                alt = (tok.alt_text or "").replace("|", "\\|").replace("\n", " ")
+                alt_cell = f"`{alt}`" if alt else "—"
+                body.append(f"| `{text}` | {', '.join(tok.flags)} | {alt_cell} | "
+                            f"{tok.conf:.0f} |")
     return "\n".join(body) + "\n"
 
 
@@ -299,26 +306,32 @@ def _token_extras(tok) -> Dict:
 
 
 def write_ocr_json(path: str, result: OCRResult) -> str:
-    from veriscript.document.ocr import review_queue, token_risk
+    from veriscript.document.ocr import (digit_review_queue,  # noqa: PLC0415
+                                         text_review_queue, token_risk)
 
-    review = review_queue(result.tokens)
+    numbers = digit_review_queue(result.tokens)
+    texts = text_review_queue(result.tokens)
     index_of = {id(t): i for i, t in enumerate(result.tokens)}
+
+    def _review_row(t, section: str) -> Dict:
+        return {
+            "index": index_of[id(t)],
+            "text": t.text,
+            "bbox": list(t.bbox),
+            "conf": round(t.conf, 2),
+            "risk": round(token_risk(t), 2),
+            "flags": t.flags,
+            "alt_text": t.alt_text,
+            "section": section,
+            **({"suggestions": t.suggestions} if t.suggestions else {}),
+        }
+
     payload = {
         "backend": result.backend,
         "meta": {k: v for k, v in result.meta.items()},
-        "review": [
-            {
-                "index": index_of[id(t)],
-                "text": t.text,
-                "bbox": list(t.bbox),
-                "conf": round(t.conf, 2),
-                "risk": round(token_risk(t), 2),
-                "flags": t.flags,
-                "alt_text": t.alt_text,
-                **({"suggestions": t.suggestions} if t.suggestions else {}),
-            }
-            for t in review
-        ],
+        "review_sections": {"number": len(numbers), "text": len(texts)},
+        "review": ([_review_row(t, "number") for t in numbers]
+                   + [_review_row(t, "text") for t in texts]),
         "tokens": [
             {
                 "text": t.text,

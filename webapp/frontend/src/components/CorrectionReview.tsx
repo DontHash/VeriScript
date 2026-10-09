@@ -204,13 +204,25 @@ export function CorrectionReview(props: { state: StudioState }) {
           <For each={rows()}>
             {(row, i) => {
               const key = row.index;
+              const showSection = () => {
+                const list = rows();
+                const prev = i() > 0 ? list[i() - 1] : undefined;
+                return row.section != null &&
+                  prev?.section !== row.section;
+              };
               return (
-                <div
-                  class={
-                    "review__row" +
-                    (clampActive() === i() ? " review__row--active" : "")
-                  }
-                >
+                <>
+                  <Show when={showSection()}>
+                    <div class="review__section">
+                      {row.section === "text" ? "Text flags" : "Numbers"}
+                    </div>
+                  </Show>
+                  <div
+                    class={
+                      "review__row" +
+                      (clampActive() === i() ? " review__row--active" : "")
+                    }
+                  >
                   <div class="review__main">
                     <span class="review__original mono">{row.text}</span>
                     <input
@@ -304,6 +316,7 @@ export function CorrectionReview(props: { state: StudioState }) {
                     </Show>
                   </div>
                 </div>
+                </>
               );
             }}
           </For>

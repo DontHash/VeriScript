@@ -32,6 +32,17 @@ All notable changes to this project are documented here. The format follows
   all arms then PASS and the validator is **adopted: `date_flags` defaults
   ON for Devanagari** (`ocr_page` via `resolve_date_flags`, flag-only,
   `run_document_pipeline` override).
+- **Digit-first review queue (Appendix AO).** The queue now has two sections:
+  numbers (flagged digit-bearing tokens) first, text flags after -
+  `review_sections` counts and a per-row `section` field in `ocr.json`, the
+  Markdown review table splits into Numbers/Text, and studio review mode
+  labels the sections. Sections partition the generic queue exactly, so no
+  flagged token is dropped. Gate (all clauses PASS): v2 content R@10 held
+  0.8049 with P@10 0.1038 -> **0.2089**; letterpress R@10 0.8750 ->
+  **0.9083** (non-digit flags had been displacing true digit errors from its
+  top-10) with P@10 0.1522 -> 0.3621; cornell `en` P@10 0.5833 -> 0.8400.
+  New: `digit_review_queue` / `text_review_queue` / `review_queue_sections`
+  (`veriscript/document/ocr.py`), `scripts/eval_digit_first_queue.py`.
 
 ## [1.5.0] - 2026-10-03
 

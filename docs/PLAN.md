@@ -2933,6 +2933,31 @@ Adoption: the digit section becomes the default number queue in studio/export;
 word flags stay a separate section; the library's generic `review_queue`
 remains unchanged for callers that want everything.
 
-**Reproduce.** `python scripts/eval_queue_composition.py --data-dir
-data/doc_eval/nepali_pdf_v2`.
+**Result 2026-10-09 — all clauses PASS on all sets; ADOPTED.**
+`scripts/eval_digit_first_queue.py` (one OCR pass per page, DML; raw JSON
+`out/digit_first_*.json`, gitignored):
+
+| Set | Role | R@10 off -> on | P@10 off -> on | partition | text section |
+|---|---|---|---|---|---|
+| `nepali_pdf_v2` full-41 | target | 0.8049 -> 0.8049 (held) | 0.1038 -> **0.2089** | ok | 192 tokens kept visible |
+| `heidata_printed` full-69 | other | 0.8750 -> **0.9083** | 0.1522 -> **0.3621** | ok | 1184 |
+| `cornell_real` full-16 `en` | other | 0.3663 -> 0.3663 (held) | 0.5833 -> **0.8400** | ok | 50 |
+
+The letterpress R@10 gain is the unexpected bonus: non-digit flags
+(`unknown_word` and friends) were outranking true digit errors in its
+top-10; the digit section recovers 4 of them. The partition invariant held
+everywhere - `number + text` equals the generic queue exactly, so no flagged
+token was dropped by the reshape.
+
+Shipped: `digit_review_queue` / `text_review_queue` / `review_queue_sections`
+(`veriscript/document/ocr.py`); `ocr.json` gains `review_sections` counts and
+a per-row `section` field, numbers first; the Markdown review table splits
+into `### Numbers` / `### Text`; the studio passes `section` through and
+labels the sections in review mode. Tests:
+`tests/test_document_queue_sections.py` plus the export/markdown/corrections/
+webapp suites and the frontend build.
+
+**Reproduce.** `python scripts/eval_digit_first_queue.py --data-dir
+data/doc_eval/nepali_pdf_v2 --role target` (heidata: `--role other`;
+cornell: `--lang en --role other`).
 
