@@ -64,6 +64,18 @@ def resolve_date_flags(date_flags: Optional[bool],
         return normalize_lang(lang) == "devanagari"
     return bool(date_flags)
 
+
+def resolve_recall_flags(recall_flags: Optional[bool],
+                         lang: Optional[str]) -> bool:
+    """Structural recall-signal default (Appendix AP, same policy as dates).
+
+    `None` resolves to ON for Devanagari and OFF otherwise (mixed-script
+    non-targets keep the measured-safe off default until their own gate).
+    """
+    if recall_flags is None:
+        return normalize_lang(lang) == "devanagari"
+    return bool(recall_flags)
+
 # Measured on the frozen synthetic set (6 pages @300dpi, mild/medium/heavy):
 #   rapidocr  raw            CER 0.0937
 #   rapidocr  restored clahe CER 0.1424  (hurts)
@@ -463,6 +475,7 @@ def ocr_page(img_bgr: np.ndarray, backend: str = "rapidocr",
              deva_ckpt: Optional[str] = None,
              split_numbers: bool = False,
              date_flags: Optional[bool] = None,
+             recall_flags: Optional[bool] = None,
              multi_read: str = "off") -> OCRResult:
     """Run OCR, attach flags, optionally re-read digit tokens on 2x crops.
 
@@ -494,6 +507,11 @@ def ocr_page(img_bgr: np.ndarray, backend: str = "rapidocr",
     2026-10-09 v3 re-adjudication (Appendix AN) `None` resolves to ON for
     Devanagari and OFF otherwise; explicit True/False always wins.
 
+    `recall_flags` adds the Appendix AP structural signals - `digit_list`
+    (>= 8 digit atoms in one token) and `separator_corrupt` (a pipe between
+    digits) - with the same `None` -> Devanagari resolution as the date
+    validator.
+
     `multi_read` ("off"|"panel", track A of docs/HARNESS_PLAN.md) re-reads
     flagged digit tokens under fixed transforms (2x, +1.5 deg, Otsu) and
     records every read plus candidate suggestions; a panel disagreement raises
@@ -503,6 +521,7 @@ def ocr_page(img_bgr: np.ndarray, backend: str = "rapidocr",
     result = be.run(img_bgr, lang=lang)
     devanagari = normalize_lang(lang) == "devanagari"
     date_flags = resolve_date_flags(date_flags, lang)
+    recall_flags = resolve_recall_flags(recall_flags, lang)
     if devanagari and deva_lines != "off":
         apply_deva_line_reader(result, img_bgr, deva_ckpt,
                                force=(deva_lines == "on"))
@@ -529,7 +548,8 @@ def ocr_page(img_bgr: np.ndarray, backend: str = "rapidocr",
                                          devanagari=devanagari,
                                          calibration=calibration,
                                          lexicon=lexicon,
-                                         date_flags=date_flags)
+                                         date_flags=date_flags,
+                                         recall_flags=recall_flags)
     result.meta["conf_threshold"] = conf_threshold
     if recheck_digits:
         conflicts = apply_digit_repass(result.tokens, img_bgr, be.recognize_crop,
@@ -896,6 +916,8 @@ RISK_WEIGHTS: Dict[str, float] = {
     "invalid_sequence": 1.0,  # impossible Devanagari sequence; dev-tuned to
                               # not displace digit signals in the top-10
     "invalid_format": 2.0,   # provably impossible date (Appendix AH)
+    "digit_list": 2.0,       # >= 8 digit atoms in one token (Appendix AP)
+    "separator_corrupt": 2.0,  # a pipe inside a number (Appendix AP)
     "digit_uncertain": 1.5,  # digit token below the digit-confidence bar
     "digit_added": 1.5,      # a number only the line reader saw (never silent)
     "unknown_word": 0.5,     # Devanagari words absent from the lexicon (W-B);
@@ -962,6 +984,21 @@ _DATE_SEP_RE = re.compile(
 _DATE_BARE_RE = re.compile(
     r"(?<![०-९\d])((?:२०|१९|20|19)[०-९\d]{6})(?![०-९\d])")
 
+# ---------------------------------------------------------------------------
+# recall signals (Appendix AP): structural digit faults invisible to the
+# disagreement flags. Measured on nepali_pdf_v2: digit_list precision 1.0,
+# separator_corrupt is format-true by construction; union +4.9pp content R@10.
+# ---------------------------------------------------------------------------
+
+RECALL_LIST_MIN_ATOMS = 8  # long statutory / case-number enumerations
+_ATOM_RE = re.compile(r"[0-9]+")
+_PIPE_BETWEEN_RE = re.compile(r"[0-9]\|[0-9]")
+
+
+def _digit_atoms_norm(text: str) -> List[str]:
+    """Maximal digit atoms, Devanagari digits normalized to ASCII."""
+    return _ATOM_RE.findall((text or "").translate(_DEVA_TO_LATIN))
+
 
 def _impossible_date(text: str) -> bool:
     """True when a date-shaped token has a provably impossible component."""
@@ -989,7 +1026,8 @@ def flag_tokens(tokens: List["Token"], conf_threshold: float,
                 calibration: Optional[Dict] = None,
                 deva_digit_conf: float = 90.0,
                 lexicon: Optional[Collection[str]] = None,
-                date_flags: bool = False) -> int:
+                date_flags: bool = False,
+                recall_flags: bool = False) -> int:
     """Attach honesty flags (never changes text). Returns flagged count.
 
     Devanagari-specific signals measured on the dev set (Appendix M):
@@ -1002,6 +1040,9 @@ def flag_tokens(tokens: List["Token"], conf_threshold: float,
     * a provably impossible date -> `invalid_format` (Appendix AH; resolved
       ON for Devanagari by `ocr_page` since the 2026-10-09 v3 re-adjudication,
       Appendix AN; this primitive keeps the explicit parameter).
+    * structural digit faults -> `digit_list` (>= 8 digit atoms) and
+      `separator_corrupt` (a pipe between digits) (Appendix AP; resolved like
+      `date_flags`).
     """
     for tok in tokens:
         if tok.conf < conf_threshold:
@@ -1020,6 +1061,12 @@ def flag_tokens(tokens: List["Token"], conf_threshold: float,
                 tok.flags.append("invalid_sequence")
             if date_flags and _impossible_date(tok.text):
                 tok.flags.append("invalid_format")
+        if recall_flags and tok.has_digits:
+            norm = (tok.text or "").translate(_DEVA_TO_LATIN)
+            if len(_digit_atoms_norm(tok.text)) >= RECALL_LIST_MIN_ATOMS:
+                tok.flags.append("digit_list")
+            if _PIPE_BETWEEN_RE.search(norm):
+                tok.flags.append("separator_corrupt")
         if calibration is not None:
             from veriscript.calibration import apply_isotonic
             tok.cal_conf = round(apply_isotonic(tok.conf, calibration["isotonic"]), 2)

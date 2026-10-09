@@ -119,6 +119,7 @@ def run_document_pipeline(img_bgr: np.ndarray, *, backend: Optional[str] = None,
                           split_numbers: bool = False,
                           multi_read: str = "off",
                           date_flags: Optional[bool] = None,
+                          recall_flags: Optional[bool] = None,
                           reconcile: bool = False,
                           digit_confusions: bool = False,
                           dpi: Optional[int] = None,
@@ -190,6 +191,7 @@ def run_document_pipeline(img_bgr: np.ndarray, *, backend: Optional[str] = None,
                           deva_lines=deva_lines, deva_ckpt=deva_ckpt,
                           split_numbers=split_numbers,
                           date_flags=date_flags,
+                          recall_flags=recall_flags,
                           multi_read=multi_read)
         conflicts = 0
         audit_error = None
@@ -198,7 +200,7 @@ def run_document_pipeline(img_bgr: np.ndarray, *, backend: Optional[str] = None,
                              conf_threshold=conf_threshold,
                              deva_lines=deva_lines, deva_ckpt=deva_ckpt,
                              split_numbers=split_numbers,
-                             date_flags=False)
+                             date_flags=False, recall_flags=False)
             conflicts = compare_digit_streams(result, audit)
         except Exception as e:  # noqa: BLE001
             audit_error = str(e)

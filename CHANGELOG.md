@@ -43,6 +43,18 @@ All notable changes to this project are documented here. The format follows
   top-10) with P@10 0.1522 -> 0.3621; cornell `en` P@10 0.5833 -> 0.8400.
   New: `digit_review_queue` / `text_review_queue` / `review_queue_sections`
   (`veriscript/document/ocr.py`), `scripts/eval_digit_first_queue.py`.
+- **Structural recall signals (Appendix AP).** `digit_list` flags tokens with
+  >= 8 digit atoms (long statutory/case-number enumerations; 4/4 true on v2)
+  and `separator_corrupt` flags a pipe between digits (`२०८३|०३|३०`,
+  format-true by construction). Gate all PASS (after two recorded method
+  amendments): v2 content R@10 0.8049 -> **0.8537** (+4.88pp) at 0.625
+  combined flag precision; zero fires on letterpress/cornell; direct cost
+  < 0.001 s/page. Adopted ON for Devanagari via `resolve_recall_flags`
+  (same policy as `date_flags`); `run_document_pipeline` forwards an
+  override and skips the audit pass. Residual 6 misses are 2 confident pure
+  misreads + 4 count-level cases - a reader/GT-audit problem, not a signal
+  problem. New: `scripts/analyze_recall_gap.py`,
+  `scripts/eval_recall_flags.py`, `tests/test_document_recall_flags.py`.
 
 ## [1.5.0] - 2026-10-03
 
