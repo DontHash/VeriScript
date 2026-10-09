@@ -3066,3 +3066,14 @@ from page GT at the count level (one on the known shaky-anchor page). These
 need a stronger reader or a GT-audit of the count-level charges, not more
 structural flags.
 
+**Follow-ups (2026-10-10).** Hard-10 re-measure under the adopted defaults
+(date flags + digit-first queue + recall flags): content R@10 **0.80**
+(8/10; was 0.50 before date flags) at P@10 0.148 (digit-first surface,
+54 slots vs 92) with 15 missing atoms - the remaining 2 misses are the
+confident pure misreads, and missing atoms are now the larger hard-10 gap.
+Raw JSON: `out/digit_content/v2_hard10_final.json`,
+`out/hard10_digitfirst_final.json`. Owner audit sheet for the full v2
+residual (41 content errors + 106 missing atoms, crops + GT context +
+page thumbnails): `scripts/build_audit_sheet.py` -> `out/audit_v2/audit.html`
++ `labels.tsv` (verdicts pending).
+

@@ -55,6 +55,13 @@ All notable changes to this project are documented here. The format follows
   misreads + 4 count-level cases - a reader/GT-audit problem, not a signal
   problem. New: `scripts/analyze_recall_gap.py`,
   `scripts/eval_recall_flags.py`, `tests/test_document_recall_flags.py`.
+- **Residual audit tooling + hard-10 re-measure (2026-10-10).**
+  `scripts/build_audit_sheet.py` writes a human audit sheet
+  (`out/audit_v2/audit.html` + `labels.tsv`: crops, flags, queue rank,
+  closest-GT context, page thumbnails) for the v2 digit residual - 41
+  content errors + 106 missing atoms, owner verdicts pending. Under the
+  adopted defaults the hard-10 slice reads content R@10 **0.80** (was 0.50
+  before date flags) at P@10 0.148 on the digit-first surface.
 
 ## [1.5.0] - 2026-10-03
 
