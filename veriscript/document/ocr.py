@@ -52,6 +52,18 @@ def normalize_lang(lang: Optional[str]) -> str:
         return "default"
     return LANG_ALIASES.get(lang.strip().lower(), "default")
 
+
+def resolve_date_flags(date_flags: Optional[bool],
+                       lang: Optional[str]) -> bool:
+    """Impossible-date validator default (adopted 2026-10-09, Appendix AN).
+
+    `None` resolves to ON for Devanagari and OFF otherwise; explicit
+    True/False always wins (frozen-gate arms and tests pass booleans).
+    """
+    if date_flags is None:
+        return normalize_lang(lang) == "devanagari"
+    return bool(date_flags)
+
 # Measured on the frozen synthetic set (6 pages @300dpi, mild/medium/heavy):
 #   rapidocr  raw            CER 0.0937
 #   rapidocr  restored clahe CER 0.1424  (hurts)
@@ -450,7 +462,7 @@ def ocr_page(img_bgr: np.ndarray, backend: str = "rapidocr",
              deva_lines: str = "off",
              deva_ckpt: Optional[str] = None,
              split_numbers: bool = False,
-             date_flags: bool = False,
+             date_flags: Optional[bool] = None,
              multi_read: str = "off") -> OCRResult:
     """Run OCR, attach flags, optionally re-read digit tokens on 2x crops.
 
@@ -476,10 +488,11 @@ def ocr_page(img_bgr: np.ndarray, backend: str = "rapidocr",
     (fragments valid dates on tightly ruled tables); kept for reference only.
     Counters land in `meta["number_split"]`.
 
-    `date_flags` enables the Appendix AH domain-format validator: a token
-    whose text parses as a date with a provably impossible component (day 39,
-    month 13, year out of range) is flagged `invalid_format`, flag-only.
-    Opt-in until its frozen gate.
+    `date_flags` runs the Appendix AH domain-format validator: a token whose
+    text parses as a date with a provably impossible component (day 39, month
+    13, year out of range) is flagged `invalid_format`, flag-only. Since the
+    2026-10-09 v3 re-adjudication (Appendix AN) `None` resolves to ON for
+    Devanagari and OFF otherwise; explicit True/False always wins.
 
     `multi_read` ("off"|"panel", track A of docs/HARNESS_PLAN.md) re-reads
     flagged digit tokens under fixed transforms (2x, +1.5 deg, Otsu) and
@@ -489,6 +502,7 @@ def ocr_page(img_bgr: np.ndarray, backend: str = "rapidocr",
     be = get_backend(backend)
     result = be.run(img_bgr, lang=lang)
     devanagari = normalize_lang(lang) == "devanagari"
+    date_flags = resolve_date_flags(date_flags, lang)
     if devanagari and deva_lines != "off":
         apply_deva_line_reader(result, img_bgr, deva_ckpt,
                                force=(deva_lines == "on"))
@@ -985,8 +999,9 @@ def flag_tokens(tokens: List["Token"], conf_threshold: float,
       caught only 23% of digit errors, at 90 it catches 69%.
     * out-of-lexicon Devanagari words -> `unknown_word` (W-B; only when the
       optional lexicon is installed).
-    * a provably impossible date -> `invalid_format` (Appendix AH; opt-in
-      until its frozen gate).
+    * a provably impossible date -> `invalid_format` (Appendix AH; resolved
+      ON for Devanagari by `ocr_page` since the 2026-10-09 v3 re-adjudication,
+      Appendix AN; this primitive keeps the explicit parameter).
     """
     for tok in tokens:
         if tok.conf < conf_threshold:

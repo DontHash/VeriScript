@@ -11,8 +11,8 @@ ones pre-registered in Appendix AN *before* this script's first run:
     nonzero_hits          the new flag adds >= 1 true content-error hit
     text_identical        0 changed pages (flag-only)
     latency_ok            <= +0.1 s/page
-  non-target (--role other):
-    content_r10_not_worse, content_p10_not_worse, queue_not_larger,
+  non-target (--role other, Amendment A1):
+    content_r10_not_worse, content_p10_not_worse, no_false_new_flags,
     text_identical, latency_ok
 
 Usage:
@@ -159,15 +159,19 @@ def _gate(off: Dict, on: Dict, role: str) -> Dict:
     else:
         r10o, r10n = so["content_R@10"], sn["content_R@10"]
         p10o, p10n = so["content_P@10"], sn["content_P@10"]
+        false_new = sn["flagged_digits"] - sn["flagged_digits_corrupt"]
         clauses["content_r10_not_worse"] = bool(
             r10o is None or (r10n is not None and r10n >= r10o))
         clauses["content_p10_not_worse"] = bool(
             p10o is None or (p10n is not None and p10n >= p10o))
-        clauses["queue_not_larger"] = bool(
-            sn["flagged_digits"] - so["flagged_digits"] <= 0)
+        clauses["no_false_new_flags"] = bool(false_new <= 0)
     clauses["pass"] = all(v for v in clauses.values()
                           if isinstance(v, bool))
     return {"changed_pages": changed, "clauses": clauses,
+            "flagged_delta": sn["flagged_digits"] - so["flagged_digits"],
+            "false_new_flags": (sn["flagged_digits"]
+                                - sn["flagged_digits_corrupt"])
+            if role != "target" else 0,
             "delta_content_R@10": (
                 round(sn["content_R@10"] - so["content_R@10"], 4)
                 if so["content_R@10"] is not None

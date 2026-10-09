@@ -118,6 +118,7 @@ def run_document_pipeline(img_bgr: np.ndarray, *, backend: Optional[str] = None,
                           deva_ckpt: Optional[str] = None,
                           split_numbers: bool = False,
                           multi_read: str = "off",
+                          date_flags: Optional[bool] = None,
                           reconcile: bool = False,
                           digit_confusions: bool = False,
                           dpi: Optional[int] = None,
@@ -188,6 +189,7 @@ def run_document_pipeline(img_bgr: np.ndarray, *, backend: Optional[str] = None,
                           recheck_digits=repass_effective,
                           deva_lines=deva_lines, deva_ckpt=deva_ckpt,
                           split_numbers=split_numbers,
+                          date_flags=date_flags,
                           multi_read=multi_read)
         conflicts = 0
         audit_error = None
@@ -195,7 +197,8 @@ def run_document_pipeline(img_bgr: np.ndarray, *, backend: Optional[str] = None,
             audit = ocr_page(audit_img, backend=backend, lang=lang,
                              conf_threshold=conf_threshold,
                              deva_lines=deva_lines, deva_ckpt=deva_ckpt,
-                             split_numbers=split_numbers)
+                             split_numbers=split_numbers,
+                             date_flags=False)
             conflicts = compare_digit_streams(result, audit)
         except Exception as e:  # noqa: BLE001
             audit_error = str(e)

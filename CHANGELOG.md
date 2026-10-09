@@ -27,7 +27,11 @@ All notable changes to this project are documented here. The format follows
   Appendix AN. First re-adjudication result: v2 target **PASS** (content
   R@10 0.7317 -> 0.8049, 3/3 flag precision, text identical); letterpress
   **FAIL** on the queue-size clause (one true flag, no displacement) - stays
-  opt-in per pre-registration; cornell `en` PASS.
+  opt-in per pre-registration; cornell `en` PASS. Amendment A1 replaced the
+  queue-size clause with `no_false_new_flags` (written before the re-run);
+  all arms then PASS and the validator is **adopted: `date_flags` defaults
+  ON for Devanagari** (`ocr_page` via `resolve_date_flags`, flag-only,
+  `run_document_pipeline` override).
 
 ## [1.5.0] - 2026-10-03
 

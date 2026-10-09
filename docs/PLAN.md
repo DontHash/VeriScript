@@ -2835,6 +2835,42 @@ precision and the unchanged R@10/P@10; narrowing the clause (e.g. to false
 flags or top-10 displacement) is an owner decision and, if taken, must be
 written before any re-run.
 
+**Amendment A1 (written 2026-10-09, before the re-run; owner-approved).** The
+letterpress failure was `queue_not_larger`, a clause inherited from the A/B
+gate template where new flags were *suspicion* signals that could fire
+spuriously on other domains. `date_flags` does not work that way: it fires
+only when a token's text parses as a calendar date with a provably impossible
+component, so on any set a firing token is by construction either a real OCR
+error or a non-date digit blob the 8-digit rule misreads (the one letterpress
+case). The risk the clause proxied for - non-target noise and displacement -
+is directly gated by flag precision (1.0 on both non-target sets) and by the
+unchanged R@10/P@10. A1 replaces the queue-size clause with the direct
+quantity:
+
+| Clause (A1) | Bar |
+|---|---|
+| `no_false_new_flags` on `heidata_printed` + `cornell_real` (`en`) | new flags that are not v3-corrupted == 0 (vacuously true when no flag fires) |
+
+Queue-size deltas remain reported as diagnostics, not clauses. The original
+run and this amendment are both on record; the run below uses A1. Adoption
+policy is unchanged: PASS on all clauses -> `date_flags` default flips ON for
+Devanagari.
+
+**Result, re-run under A1 (2026-10-09).** All arms PASS:
+
+| Set | Role | v3 R@10 off -> on | new flags / false | diagnostic |
+|---|---|---|---|---|
+| `nepali_pdf_v2` full-41 | target | 0.7317 -> **0.8049** (+7.32pp) | 3 / 0 | 30 -> 33 hits; precision 1.0; text identical |
+| `heidata_printed` full-69 | other | 0.8750 -> 0.8750 | 1 / 0 | queue delta +1 (true flag); R/P unchanged |
+| `cornell_real` full-16 `en` | other | 0.3663 -> 0.3663 | 0 / 0 | unchanged |
+
+**Adopted.** `date_flags` flips ON for Devanagari: `ocr_page(date_flags=None)`
+resolves via `resolve_date_flags` (None -> ON for Devanagari, OFF otherwise);
+`run_document_pipeline` forwards an optional override for callers; the audit
+pass skips it; `flag_tokens` keeps the explicit primitive. Flag-only - text
+is never edited - and the one letterpress firing stays surfaced as a review
+flag (diagnostic value).
+
 **Reproduce.** `python scripts/eval_digit_content.py --data-dir
 data/doc_eval/nepali_pdf_v2` (add `--limit 10` for hard-10; `--lang en` for
 cornell en); attribution `python scripts/attrib_digit_errors.py --data-dir
