@@ -2723,3 +2723,95 @@ confusion-table problem.
 described above (one-off; audited labels under
 `data/doc_eval/target_domain_digit_staging_v1`).
 
+## Appendix AN - corrected digit-content queue metric (v3) + error attribution (2026-10-09)
+
+**Question.** The digital queue R@10 (0.38 on `nepali_pdf_v2`) is the
+roadmap's headline target. What is the 156-error denominator actually made of,
+and does the number measure recognition or convention?
+
+**Attribution.** `scripts/attrib_digit_errors.py` re-ran the shipped flag path
+on all 41 v2 pages and reproduced the frozen baselines exactly (156 errors /
+R@10 0.3846 full-41; 23 / 0.3478 hard-10; `out/attrib_digit_errors_v2*.json`,
+gitignored). Classification of the 156 errors: **122 (78%) are grouping
+artifacts** - every digit run in the token exists verbatim in the page GT, but
+the token is a line-level box joining several correct numbers while the GT is
+word-level, so the legacy membership test can never match it. Appendix AM had
+noted this inflation as a caveat; the attribution shows it is the dominant
+mass. The rest: content differences, except a small set of substitution /
+length cases.
+
+**Definition (v3).** `veriscript/core/digit_content.py`: normalize Devanagari
+digits to ASCII, drop separators, take **maximal digit atoms**, and compare the
+page's OCR atom multiset with the GT atom multiset. A **corrupted atom**
+(OCR-side multiset surplus) charges the token that produced it - these are the
+queue's error tokens. A **missing atom** (GT-side surplus) is a number the OCR
+never produced anywhere; no token exists to flag it, so it is reported
+separately and stays outside the recall denominator. Grouping, token
+boundaries, separator style, run splits and reading-order divergence cannot
+create an error; transpositions remain visible (39 vs 93 is an atom mismatch).
+
+**Measured** (`scripts/eval_digit_content.py`; CPU, one arm per set; raw JSON
+under `out/digit_content/`, gitignored):
+
+| Set | legacy err | v3 err | legacy R@10 | v3 R@10 | v3 P@10 | grouping artifacts | missing atoms |
+|---|---|---|---|---|---|---|---|
+| `nepali_pdf_v2` full-41 | 156 | **41** | 0.3846 | **0.7317** | 0.0943 | 122 | 106 |
+| `nepali_pdf_v2` hard-10 | 23 | **10** | 0.3478 | **0.5000** | 0.0543 | 16 | 15 |
+| `heidata_printed` full-69 | 137 | 120 | 0.8832 | 0.8750 | 0.1522 | 28 | 92 |
+| `cornell_real` full-16 (`ne`, §0b convention) | 89 | 110 | 0.2472 | 0.2636 | 0.3412 | 0 | 125 |
+| `cornell_real` full-16 (`en`) | 135 | 172 | 0.4000 | 0.3663 | 0.5833 | 1 | 158 |
+
+**Findings.**
+
+1. **The v2 headline understated real queue performance by 2x.** Of 41 genuine
+   content errors the queue catches 30 (R@10 0.7317) - not 60/156 artifacts.
+2. **The hard-10 is the honest weak slice**: 10 corrupted tokens (5 caught,
+   0.50) and 15 missing numbers. The three `२०८१-०४-३९` (day-39) substitutions
+   are among the misses and are exactly what the AH validator catches.
+3. **Queue precision is now visible and low on v2: v3 P@10 0.094** - most
+   top-10 slots are artifact-flag noise, not content errors. Reducing queue
+   noise (suppressing grouping-artifact flags) is a product task in its own
+   right, independent of recognition.
+4. **Letterpress is unaffected** (0.875 vs 0.883): its counted errors are real
+   content errors, and its missing-atom count (92) is a diagnostic, not a
+   queue metric.
+5. **`cornell_real` is mixed-script.** The audited worst page is a Nepali
+   table of contents; `ne` and `en` arms are both reported above (the legacy
+   `en` R@10 0.40 reproduces the HARNESS_PLAN §0b note). v3 finds *more* errors
+   than legacy there because multiset multiplicity is stricter than set
+   membership.
+6. **The missing-atom column is diagnostic with known noise** (sampled
+   2026-10-09): abbreviation marks read as digits in letterpress GT, page
+   numbers, and script-mismatched pages. It is never part of the recall
+   denominator.
+
+**Decision.** v3 is the reported digit-content metric for queue work from now
+on; the legacy numbers stay on record for continuity. The frozen manifests,
+data and rankings are unchanged - this is a fix to the error *definition* (the
+legacy definition counted correctly-read text as errors), not a set
+renegotiation. Every future gate states its v3 baseline; the pre-registered
+clauses below were written before the first re-adjudication run.
+
+**Pre-registered re-adjudication - `date_flags` under v3**
+(`scripts/eval_date_flags_v3.py`, off/on arms, `off` = shipped default):
+
+| Clause | Bar |
+|---|---|
+| `content_r10_plus3pp` on `nepali_pdf_v2` (full 41) | v3 R@10 >= 0.7317 + 0.03 |
+| `flag_precision_ge_0.5` on v2 | flagged digit tokens that are v3-corrupted / flagged digit tokens >= 0.5 |
+| `text_identical` all sets | 0 changed pages (flag-only) |
+| `nonzero_hits` on `nepali_pdf_v2` | the new flag must add >= 1 true content-error hit (a +3pp clause that passes without new hits is arithmetic, not value) |
+| non-target `heidata_printed`, `cornell_real` (`en`) | v3 R@10 and P@10 not worse |
+| `queue_not_larger` | flagged-token delta <= 0 on letterpress + cornell |
+| `latency_ok` | <= +0.1 s/page |
+
+PASS -> flip `date_flags` default on for Devanagari (mirrors AH's intended
+policy); FAIL -> stays opt-in and is recorded. The AH gate measured the same
+3 flags as +1.9pp against the legacy 156-error denominator; under v3 those
+same 3 hits are +7.3pp - the arithmetic the validator always deserved.
+
+**Reproduce.** `python scripts/eval_digit_content.py --data-dir
+data/doc_eval/nepali_pdf_v2` (add `--limit 10` for hard-10; `--lang en` for
+cornell en); attribution `python scripts/attrib_digit_errors.py --data-dir
+data/doc_eval/nepali_pdf_v2`; tests `python -m pytest tests/test_digit_content.py`.
+

@@ -6,6 +6,26 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Corrected digit-content queue metric (v3) + whole-set error attribution
+  (2026-10-09).** Attribution (`scripts/attrib_digit_errors.py`) reproduces the
+  frozen baselines exactly and shows the legacy queue metric counted 122/156
+  (78%) v2 "digit errors" that are grouping artifacts: line-level tokens
+  joining several correctly-read numbers, scored against word-level GT. The v3
+  scorer (`veriscript/core/digit_content.py`) compares page-level digit-atom
+  multisets; grouping, token boundaries, separator style and reading order can
+  never create an error; corrupted atoms charge their token; GT numbers the
+  OCR never produced are reported separately as a diagnostic. Measured
+  (`scripts/eval_digit_content.py`): v2 full-41 real content errors 41 with
+  queue R@10 0.3846 -> **0.7317**; hard-10 0.3478 -> **0.5000**; letterpress
+  0.8832 -> 0.8750 (its errors were already real); `cornell_real` is
+  mixed-script and is reported in both languages. The corrected metric also
+  exposes queue precision (v2 v3 P@10 0.094): artifact-flag noise, not
+  recognition, is now the visible queue problem. Full record + the
+  pre-registered `date_flags` v3 re-adjudication clauses: docs/PLAN.md
+  Appendix AN.
+
 ## [1.5.0] - 2026-10-03
 
 ### Added
