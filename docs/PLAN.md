@@ -3075,5 +3075,50 @@ Raw JSON: `out/digit_content/v2_hard10_final.json`,
 `out/hard10_digitfirst_final.json`. Owner audit sheet for the full v2
 residual (41 content errors + 106 missing atoms, crops + GT context +
 page thumbnails): `scripts/build_audit_sheet.py` -> `out/audit_v2/audit.html`
-+ `labels.tsv` (verdicts pending).
++ `labels.tsv`; all 147 owner verdicts complete - see Appendix AQ.
+
+## Appendix AQ - owner audit of the v2 digit residual (2026-10-10)
+
+**Question.** Of the v3-charged v2 content errors and the missing-atom
+diagnostic, which are real product errors and which are metric/GT edges?
+`scripts/build_audit_sheet.py` produced `out/audit_v2/` (audit.html +
+labels.tsv: crops, flags, queue rank, closest-GT context, page thumbnails);
+the dataset owner reviewed **all 147 rows**.
+
+**Result - content errors (41 charged).** **29 real, 12 noise** (8 multiset
+multiplicity artifacts - the atom exists verbatim in GT, the surplus is a
+page-level count artifact; 4 other metric edges: a correct 16-atom
+enumeration charged by surplus counting, a dropped-`)` case, and similar).
+Of the 29 real, the number queue catches **27 - audited-real R@10
+0.9310** (v3 reports 0.8537). The 2 true misses are pure reader confusions
+in correctly-boxed fields:
+
+| id | OCR | truth (owner) | shape |
+|---|---|---|---|
+| 7 | `9` | printed `१` (party line) | 1-vs-9 |
+| 30 | `(४)` | printed `(५)` ("identical crop glyph") | 5-vs-4 |
+
+**Result - missing atoms (106).** **10 real drops** (numbers absent from the
+output), **65 GT script-mix artifacts** (the corrupt anchor layer writes
+Latin digits where the print is Devanagari; the surplus GT occurrence is the
+artifact), **31 ambiguous** (repeat values not localizable without
+position-level GT). The missing-atom column over-reports real drops ~10x.
+
+**Findings.**
+
+1. The audited v2 residual is **39 real issues over 41 pages** (29 content +
+   10 drops); the queue covers 27 of the 29 content errors (93%).
+2. v3 stays the gate metric; the audit is the reference: report both
+   (v3 0.8537, audited 0.9310). The 12 noise charges are the known edge of
+   page-level multiset accounting.
+3. The two misses and the script-corruption family (`WO` -> `W०`) are
+   **reader problems** - target-domain data, not queue signals.
+4. Missing-atom charges need GT-artifact filtering before anchoring any
+   completeness feature.
+
+**Audited set.** `data/doc_eval/v2_digit_audit_v1/` - the 29 real
+content-error crops + labels and the 10 real drops as a list; internal, not
+a frozen eval set; built by `scripts/import_audit_verdicts.py` from the
+owner-filled `labels.tsv`. Exact per-crop correction labels remain the step
+before any training use (the audit notes carry the truth for most).
 

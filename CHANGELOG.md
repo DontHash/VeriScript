@@ -62,6 +62,15 @@ All notable changes to this project are documented here. The format follows
   content errors + 106 missing atoms, owner verdicts pending. Under the
   adopted defaults the hard-10 slice reads content R@10 **0.80** (was 0.50
   before date flags) at P@10 0.148 on the digit-first surface.
+- **v2 residual owner audit (Appendix AQ).** All 147 audit rows reviewed:
+  41 charged content errors resolve to **29 real + 12 metric edges**; the
+  queue catches 27 of the 29 - **audited-real R@10 0.9310** (v3 reports
+  0.8537). The 2 true misses are reader confusions (`१`->`9` party line,
+  `(५)`->`(४)` enumeration). Missing atoms resolve to **10 real drops**
+  + 65 GT script-mix artifacts + 31 repeat-value ambiguities (the column
+  over-reports real drops ~10x). Audited set:
+  `data/doc_eval/v2_digit_audit_v1/` (39 entries, internal) via
+  `scripts/import_audit_verdicts.py`.
 
 ## [1.5.0] - 2026-10-03
 
