@@ -3151,3 +3151,16 @@ every page.** Imported **64 digit-bearing labels**
 pending target-domain digit records toward the ~200-400 first checkpoint for
 the verifier screen.
 
+**Owner audit (2026-10-10).** All 64 labels reviewed: **63 `ok`, 1 `fix`**
+- `s08_supreme_p025_0051.png` (`नं. 3` -> `नं. ३`; the print glyph is
+Devanagari, identical to the `३` in `३५.` on the same line). Applied by
+`scripts/import_label_review.py`; labels sha256
+`64ea1ebbc3cdd473a88de597bd8999af435a4cbd17cea5276873f0782ef97a7b`; the
+staging set is now owner-audited.
+
+**Cumulative data (audited).** Owner-audited target-domain digit labels:
+**46 (v1) + 64 (v2) = 110**, plus the 29 diagnostic crops in
+`v2_digit_audit_v1`. Below the ~200-400 verifier-screen checkpoint, and the
+N5 lesson (219 mixed crops failed) says the next batch should add
+*typography diversity* - a different document, not more of the same register.
+

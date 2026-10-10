@@ -77,9 +77,14 @@ All notable changes to this project are documented here. The format follows
   10/10 sessions over the 20% bar, every queue emptied**; **64 digit-bearing
   labels** staged (`data/doc_eval/target_domain_digit_staging_v2`, labels
   sha256 `bcfbc79048fa`) - vs 46 in batch 1. Owner review sheet:
-  `scripts/build_label_review_sheet.py` (`review.html` + `review.tsv`,
-  verdicts pending; agent pre-correction, not human GT). Cumulative:
-  46 audited + 64 pending toward the ~200-400 verifier-screen checkpoint.
+  `scripts/build_label_review_sheet.py` (`review.html` + `review.tsv`;
+  agent pre-correction, not human GT). Cumulative: 46 audited + 64 pending
+  toward the ~200-400 verifier-screen checkpoint.
+- **Batch 2 owner audit closed (2026-10-10).** All 64 labels reviewed:
+  **63 `ok`, 1 `fix`** (`नं. 3` -> `नं. ३`), applied by
+  `scripts/import_label_review.py`; labels sha256 `64ea1ebb`. Owner-audited
+  target-domain labels now **110** (46 v1 + 64 v2). Next batch should add a
+  different document for typography diversity (N5 lesson).
 
 ## [1.5.0] - 2026-10-03
 
