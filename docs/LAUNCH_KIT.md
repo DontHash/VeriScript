@@ -17,7 +17,7 @@ them.**
 | Queue digit-content recall@10 (metric v3) | **0.85** government PDFs / **0.91** letterpress | Appendix AN/AO |
 | Precision@10 after the digit-first queue | **0.10 -> 0.21** PDFs, **0.15 -> 0.36** letterpress | Appendix AO |
 | What the engine invents | Tesseract invents **5,080 tokens** on the letterpress set; ours ships an honesty gate instead | BENCHMARK.md |
-| Cost of self-hosting | ~**$0.0003/page** vs $1.00-1.50/1k cloud read tier | MARKET.md |
+| Cost of self-hosting | ~**$0.0003/page** vs $1.00-1.50/1k cloud read tier (vendor prices sourced in [docs/PRICING_RESEARCH.md](PRICING_RESEARCH.md), accessed 2026-10-10, no accuracy claims) | MARKET.md |
 | Correction loop (data channel) | **317 owner-audited** target-domain digit labels collected from normal review sessions | Appendix AR |
 
 Honest weak points to volunteer before anyone finds them: handwriting is out
