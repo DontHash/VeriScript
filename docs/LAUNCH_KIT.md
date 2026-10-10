@@ -1,8 +1,11 @@
 # Launch kit - v1.6.0 (2026-10-10)
 
-Everything the launch needs is live: `pip install veriscript` 1.6.0 on PyPI,
-the GitHub release, and <https://veriscript.live> with the digit-first queue
-and adopted validators. This file is the copy, the demo script, the
+Everything the launch needs is live: `pip install veriscript` 1.6.0 on PyPI
+and the GitHub release. **Demo status: the hosted demo was removed on
+2026-10-10** (the GCP project was deleted; see `deploy/gcp-cloudrun.md` to
+re-deploy). Launch either after re-hosting - or with the no-demo copy below,
+which is already written that way (local-first, one command). This file is
+the copy, the demo script, the
 sequencing, and the answers - written to be used, not admired.
 
 The one-sentence wedge, everywhere: **offline OCR for Devanagari documents
@@ -50,8 +53,8 @@ model, is the product's accuracy story.
 > doubled after the queue split into numbers-vs-text sections.
 >
 > It runs on CPU, no account, no telemetry, MIT code (engine Apache-2.0).
-> Everything is local: `pip install veriscript`, or the demo at
-> https://veriscript.live (one page, deleted after 60 minutes).
+> One command to run it: `pip install veriscript`. (A hosted demo is offline
+> while it gets re-hosted; everything in this post was produced locally.)
 >
 > What it doesn't do: handwriting, and real phone photos are still pending
 > real ground truth. The letterpress numbers (CER 0.37) are honest, not
@@ -118,8 +121,9 @@ No cloud, no account, no telemetry. Free core, open source.
 
 **Maker's first comment**: the story (court registers + a wrong digit = a
 wrong case number), the 93% number, the honest list (handwriting out,
-letterpress 0.37), the ask (try it on your own documents - the demo deletes
-uploads after 60 minutes).
+letterpress 0.37), the ask (try it on your own documents in one command -
+`pip install veriscript`; the hosted demo is offline while it gets
+re-hosted).
 
 **Gallery order**: 1) before/after with the numbered queue [existing
 asset: docs/assets/before_after.png], 2) studio review mode with suggestion
@@ -154,7 +158,7 @@ benchmark table, 5) offline/no-telemetry statement card.
 | 0:38-0:55 | Correct it (type `३२`, Enter); "apply to identical"; queue shrinks | "Fix once, apply to every repeat" |
 | 0:55-1:10 | Re-export; open corrected PDF; browser Ctrl+F the corrected date | "Re-exported with provenance - PDF, text, Markdown" |
 | 1:10-1:22 | Freeze frame: `27/29 real errors in the top-10`; `precision@10 x2` | "Measured on frozen, audited data" |
-| 1:22-1:30 | veriscript.live + `pip install veriscript` + GitHub logo | "Free. Offline. Open source." |
+| 1:22-1:30 | `pip install veriscript` + GitHub logo | "Free. Offline. Open source." |
 
 Recording notes: use the v1.6 studio (numbers/text sections visible); the
 register page used in the beta is internal-only - record with the synthetic
@@ -175,17 +179,19 @@ PH.
 5. **T+1w**: awesome-ocr/self-hosted lists + alternativeto entries (honest
    entries, where-we-lose included); then the "State of Devanagari OCR"
    write-up if energy remains - that is the ongoing citation engine.
-6. **Each launch moment**: log GSC, stars, PyPI downloads (pypistats), demo
-   `daily_used` before/after.
+6. **Each launch moment**: log GSC, stars, PyPI downloads (pypistats) before
+   and after.
 
 ## 6. Do not
 
 - No bought upvotes, no review swaps, no copy-paste cross-posts.
-- No overclaiming: every number links to its frozen set; "0.93" always
+- Don't link a dead demo: either re-host first (`deploy/gcp-cloudrun.md`) or
+  use the no-demo copy above; never post a URL that 404s.
+- Do not overclaim: every number links to its frozen set; "0.93" always
   comes with "audited residual, 29 errors" in the same sentence.
 - Don't block AI crawlers (Cloudflare defaults!) - AI visibility is the
   point; the SEO_AEO doc has the checklist.
 - Don't argue benchmarks in comments; link and move on.
-- Don't launch the demo to HN before checking the rate limits (200
-  runs/day, 20 pages/visitor) - the shedding behavior is deliberate and
-  documented.
+- If the demo is re-hosted before launch: check its rate limits first (the
+  former demo allowed 200 runs/day, 20 pages/visitor - the shedding behavior
+  is deliberate and documented).

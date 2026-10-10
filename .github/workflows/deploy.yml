@@ -1,12 +1,10 @@
 name: Deploy demo (Cloud Run)
 
-# Deploys only after CI passes on main, so a red build never reaches the live
-# demo. Manual runs: Actions → Deploy demo → Run workflow.
+# STALE (2026-10-10): the GCP project behind this deployment was removed and
+# the hosted demo is offline. This workflow is manual-only until a new project
+# is configured; see deploy/gcp-cloudrun.md for the re-deploy guide (project,
+# WIF provider and service account all need to be re-created).
 on:
-  workflow_run:
-    workflows: ["CI"]
-    types: [completed]
-    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -25,18 +23,13 @@ env:
 
 jobs:
   deploy:
-    if: >
-      github.repository == 'DontHash/VeriScript' &&
-      (github.event_name == 'workflow_dispatch' ||
-       github.event.workflow_run.conclusion == 'success')
+    if: github.repository == 'DontHash/VeriScript'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
-      SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+      SHA: ${{ github.sha }}
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - uses: google-github-actions/auth@v2
         with:

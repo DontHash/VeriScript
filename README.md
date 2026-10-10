@@ -7,9 +7,10 @@ out — with honest flags on the numbers it is not sure about. Devanagari
 
 Everything runs on your machine. No cloud calls, no telemetry, no account.
 
-**Live demo:** <https://veriscript.live> — one page at
-a time, no signup; demo uploads are deleted after the 60-minute retention
-window.
+**Runs locally in one command:**
+`pip install veriscript` and `python -m veriscript --mode document --input page.jpg --output out/run1`.
+The hosted demo was retired on 2026-10-10 (the cloud deployment was removed);
+the re-deploy guide stays in [deploy/gcp-cloudrun.md](deploy/gcp-cloudrun.md).
 
 ```
 photo/scan/PDF ──▶ orientation ──▶ layout ──▶ OCR ──▶ risk flags ──▶ searchable PDF
@@ -154,8 +155,7 @@ Known limitations are listed with their evidence in
 [docs/EVALUATION.md](docs/EVALUATION.md) and the full research log in
 [docs/PLAN.md](docs/PLAN.md). Since 2026-10-01 the image paths (CLI and web
 studio) default to the `auto` line-reader gate — running text + aged paper
-only. PDF inputs keep the engine reading, and the hosted document-only demo
-ships no reader checkpoint, so it stays on the engine there.
+only; PDF inputs keep the engine reading.
 
 ## How it compares
 

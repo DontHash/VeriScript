@@ -1,5 +1,14 @@
 # Deploying the demo on Google Cloud Run
 
+> **Status 2026-10-10: the project backing this deployment was removed and the
+> hosted demo is offline.** This document is kept as the re-deploy guide - the
+> one-time setup below re-creates everything (project APIs, Artifact Registry,
+> deployer service account, Workload Identity Federation) against a new
+> project. The GitHub deploy workflow is manual-only until then
+> (`.github/workflows/deploy.yml`). Also note the DNS side: the domain mapping
+> at Namecheap still points at Google's old targets and must be repointed after
+> a re-deploy.
+
 Serverless, scale-to-zero, one instance max. The bill is bounded by
 `--max-instances 1` + the app's hard daily run and page budgets; a $5 budget
 alert is part of the setup. Region used here: `us-central1`.

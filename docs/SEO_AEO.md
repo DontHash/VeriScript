@@ -1,6 +1,10 @@
 # Discoverability plan — SEO, AEO and distribution
 
 Research date: 2026-10-01. Audited: `veriscript.live`, GitHub
+
+> **Status 2026-10-10: the hosted demo was removed** (GCP project deleted);
+> on-site workstreams below resume when a host is restored - the repo content
+> and off-site actions (benchmark, mentions, lists) are unaffected.
 `DontHash/VeriScript`, PyPI, and the competitor SERPs for the
 Nepali/Devanagari OCR query space. External claims are sourced at the end;
 industry claims are marked as such.

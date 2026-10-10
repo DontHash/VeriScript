@@ -22,7 +22,7 @@ import { readFile } from "node:fs/promises";
 import { createClient } from "veriscript-client";
 
 const client = createClient({
-  baseUrl: "https://veriscript.live", // omit for same-origin browsers
+  baseUrl: "http://localhost:8000", // omit for same-origin browsers
 });
 
 const page = await readFile("scan.png");

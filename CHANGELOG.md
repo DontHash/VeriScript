@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **Hosted demo retired (2026-10-10).** The GCP deployment was removed; the
+  GitHub deploy workflow is manual-only until a new project is configured
+  (`deploy/gcp-cloudrun.md` keeps the re-deploy guide). README and package
+  metadata no longer advertise the demo - the quickstart is local
+  (`pip install veriscript`); the launch kit carries no-demo copy.
+
 ## [1.6.0] - 2026-10-10
 
 ### Added
