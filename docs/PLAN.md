@@ -3122,3 +3122,32 @@ a frozen eval set; built by `scripts/import_audit_verdicts.py` from the
 owner-filled `labels.tsv`. Exact per-crop correction labels remain the step
 before any training use (the audit notes carry the truth for most).
 
+## Appendix AR - correction-loop batch 2 (2026-10-10)
+
+**Scope.** Ten fresh non-frozen register pages (`supreme_218512.pdf` pages
+18-27; the frozen guard refuses evaluation pages). One `prepare` session per
+page, agent review of the queue, `compose` -> `apply`, then `import`.
+
+**Review method (agent, disclosed).** Digit-bearing tokens were reviewed at
+full resolution against the OCR reading, the re-pass/alternative text and the
+source PDF text layer (encoding-corrupt; usable for word-identity and Latin
+digits). The known error families were repaired: the `WO`/`W०` case-title
+corruption (11 labels), `१`/Latin mixes (`१145` -> `1145`, `२066` -> `2066`,
+`3३` -> `33`), footnote-affix spacing, and word-level breaks inside
+digit-bearing lines. Non-digit flags (`script_mismatch` on legitimate
+English, `invalid_sequence` prose) were triaged and confirmed - their
+word-level polish is out of scope for this batch's training target.
+
+**Measured.** `out/beta2/`: **148/148 queued tokens acted (100%), 39 changed,
+109 confirmed, 0 skipped; 10/10 sessions met the >=20% bar; queue emptied on
+every page.** Imported **64 digit-bearing labels**
+(`data/doc_eval/target_domain_digit_staging_v2`, labels sha256
+`bcfbc79048fa`) - the staging-v1 batch produced 46. Owner review sheet:
+`scripts/build_label_review_sheet.py` -> `review.html` + `review.tsv`
+(verdicts pending); the labels are **agent pre-correction, NOT human GT**.
+
+**Cumulative data.** staging v1 (46, owner-audited 2026-10-02) + staging v2
+(64, pending audit) + v2 audit set (29 crops, diagnostic) = 139 audited /
+pending target-domain digit records toward the ~200-400 first checkpoint for
+the verifier screen.
+

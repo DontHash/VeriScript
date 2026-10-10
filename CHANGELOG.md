@@ -71,6 +71,15 @@ All notable changes to this project are documented here. The format follows
   over-reports real drops ~10x). Audited set:
   `data/doc_eval/v2_digit_audit_v1/` (39 entries, internal) via
   `scripts/import_audit_verdicts.py`.
+- **Correction-loop batch 2 (Appendix AR).** Ten fresh non-frozen register
+  pages (`supreme_218512.pdf` 18-27), agent-reviewed with the text-layer
+  cross-check: **148/148 queued tokens acted (39 changed, 109 confirmed),
+  10/10 sessions over the 20% bar, every queue emptied**; **64 digit-bearing
+  labels** staged (`data/doc_eval/target_domain_digit_staging_v2`, labels
+  sha256 `bcfbc79048fa`) - vs 46 in batch 1. Owner review sheet:
+  `scripts/build_label_review_sheet.py` (`review.html` + `review.tsv`,
+  verdicts pending; agent pre-correction, not human GT). Cumulative:
+  46 audited + 64 pending toward the ~200-400 verifier-screen checkpoint.
 
 ## [1.5.0] - 2026-10-03
 
