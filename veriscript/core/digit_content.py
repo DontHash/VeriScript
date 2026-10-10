@@ -59,6 +59,19 @@ def content_errors(tokens: Sequence, gt_text: str) -> Dict:
     corrupted = ocr_counter - gt_counter          # OCR side, multiplicity kept
     missing = gt_counter - ocr_counter            # GT side, multiplicity kept
 
+    # Charge each surplus atom value to the tokens that produced it.
+    #
+    # `corrupted` is a page-level multiset diff over atom *values*, so when a
+    # value occurs in several tokens the diff cannot say WHICH occurrence is the
+    # extra one. Charging in reading order (the established contract, pinned by
+    # tests/test_digit_content.py) attributes the surplus to the earliest
+    # matching tokens. `ambiguous_tokens` reports the tokens for which that
+    # choice is not determined by the data, so a caller can tell a localized
+    # error from a page-level multiplicity artifact.
+    positions: Dict[str, List[int]] = {}
+    for ti, a in ocr_atoms:
+        positions.setdefault(a, []).append(ti)
+
     charged: set = set()
     remaining = Counter(corrupted)
     for ti, a in ocr_atoms:
@@ -66,11 +79,21 @@ def content_errors(tokens: Sequence, gt_text: str) -> Dict:
             remaining[a] -= 1
             charged.add(ti)
 
+    # A charge is "ambiguous" when the charged token shares its surplus value
+    # with another token: any of the sharing tokens could have carried the
+    # extra occurrence, so the token-level verdict is not evidence-backed.
+    ambiguous: set = set()
+    for a in corrupted:
+        shared = positions.get(a, [])
+        if len(shared) > 1:
+            ambiguous.update(shared)
+
     missing_list: List[str] = []
     for a, n in sorted(missing.items()):
         missing_list.extend([a] * n)
     return {
         "error_tokens": sorted(charged),
+        "ambiguous_tokens": sorted(charged & ambiguous),
         "corrupted_atoms": sum(corrupted.values()),
         "missing_gt_atoms": missing_list,
         "missing_gt_runs": missing_list,   # back-compat alias (eval script)

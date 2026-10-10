@@ -50,15 +50,37 @@ def _lev(a: str, b: str) -> int:
     return prev[-1]
 
 
-def _gt_context(gt: str, needle: str, width: int = 90) -> str:
-    """Context window around `needle`; search normalized, display raw.
+def _gt_context(gt: str, needle: str, width: int = 90,
+                occurrence: int = 0) -> Tuple[str, int]:
+    """Context window around the `occurrence`-th match of `needle`.
 
     `_DEVA_TO_LATIN` is a 1:1 character translation, so indices align.
+
+    Returns `(context, total_matches)`. The total lets the sheet say "this value
+    occurs N times on the page" instead of silently showing an arbitrary match:
+    an atom value such as `1` or `5` occurs dozens of times, and the FIRST match
+    is almost never the occurrence the OCR actually dropped.
     """
-    idx = gt.translate(_DEVA_TO_LATIN).find(needle)
-    if idx < 0:
-        return ""
-    return gt[max(0, idx - width): idx + len(needle) + width].replace("\n", " ")
+    norm = gt.translate(_DEVA_TO_LATIN)
+    total = norm.count(needle)
+    if not total:
+        return "", 0
+    idx = -1
+    for _ in range(occurrence + 1):
+        idx = norm.find(needle, idx + 1)
+        if idx < 0:
+            return "", total
+    return (gt[max(0, idx - width): idx + len(needle) + width]
+            .replace("\n", " "), total)
+
+
+def _rel(path: str, out_dir: str) -> str:
+    """Relative path with FORWARD slashes, safe to drop into HTML/URL.
+
+    `os.path.relpath` emits backslashes on Windows; `href="crops\\a.png"` is not
+    a valid URL and silently breaks every link in the sheet.
+    """
+    return os.path.relpath(path, out_dir).replace(os.sep, "/")
 
 
 def _sanitize(s: str) -> str:
@@ -94,8 +116,11 @@ def run(data_dir: str, lang: str, out_dir: str) -> Dict:
         for i in rep["error_tokens"]:
             tok = res.tokens[i]
             ocr_atoms = doc_content.atoms(tok.text)
-            # charged atoms = OCR-side multiset surplus
-            surplus = []
+            # Charged atoms for THIS token = its own atoms minus whatever the
+            # GT can cover on the page. An empty list means the token's digits
+            # are all present in the GT; the charge came from a page-level
+            # multiplicity artifact, not from a wrong digit here.
+            charged_here: List[str] = []
             remaining = {}
             for a in ocr_atoms:
                 remaining[a] = remaining.get(a, 0) + 1
@@ -103,13 +128,14 @@ def run(data_dir: str, lang: str, out_dir: str) -> Dict:
                 if remaining.get(a, 0) > 0:
                     remaining[a] -= 1
             for a, n in remaining.items():
-                surplus.extend([a] * n)
+                charged_here.extend([a] * n)
+            surplus = charged_here
             contexts = []
             for atom in surplus[:2]:
                 if not gt_atoms:
                     continue
                 nearest = min(gt_atoms, key=lambda g: _lev(atom, g))
-                ctx = _gt_context(gt, nearest)
+                ctx, _total = _gt_context(gt, nearest)
                 if ctx and ctx not in contexts:
                     contexts.append(ctx)
             crop = _crop_with_pad(img, tok.bbox, pad_ratio=0.03)
@@ -121,6 +147,7 @@ def run(data_dir: str, lang: str, out_dir: str) -> Dict:
                                          f"err_{len(errors):03d}.png")
                 doc_data.imwrite_safe(crop_path, big)
             r = rank.get(id(tok))
+            ambiguous = i in set(rep.get("ambiguous_tokens", []))
             errors.append({
                 "kind": "content_error", "page": e["id"],
                 "text": tok.text, "atoms": " ".join(ocr_atoms),
@@ -128,20 +155,38 @@ def run(data_dir: str, lang: str, out_dir: str) -> Dict:
                 "missed_top10": r is None or r >= 10,
                 "gt_context": " || ".join(contexts),
                 "crop": crop_path, "page_png": thumb,
+                # evidence column: the atoms that GT cannot cover on this page.
+                # empty -> every digit in the token IS in the GT, so the row is
+                # a page-level multiplicity artifact rather than a wrong read.
+                "evidence": ("ambiguous-shared-value" if ambiguous
+                             else ("charged: " + " ".join(surplus)
+                                   if surplus else
+                                   "none (all atoms present in GT)")),
+                "verdict": "", "notes": "",
             })
         for atom in rep["missing_gt_atoms"]:
+            ctx, total = _gt_context(gt, atom)
             missing.append({
                 "kind": "missing_atom", "page": e["id"], "text": atom,
                 "atoms": atom, "flags": "", "rank": "", "missed_top10": None,
-                "gt_context": _gt_context(gt, atom),
+                # A value that occurs N>1 times cannot be localized by a plain
+                # substring search; say so rather than implying the shown
+                # context IS the dropped occurrence.
+                "gt_context": (ctx if total <= 1 else
+                               f"[appears {total}x on this page — context is "
+                               f"the 1st match, not necessarily the missing "
+                               f"one] {ctx}"),
                 "crop": "", "page_png": thumb,
+                "evidence": f"GT atom occurs {total}x on this page",
+                "verdict": "", "notes": "",
             })
 
     rows = errors + missing
     tsv = os.path.join(out_dir, "labels.tsv")
     with open(tsv, "w", encoding="utf-8") as fh:
         fh.write("id\tkind\tpage\ttext\tatoms\tflags\tqueue_rank\t"
-                 "missed_top10\tgt_context\tcrop\tpage_png\tverdict\tnotes\n")
+                 "missed_top10\tgt_context\tcrop\tpage_png\tevidence\t"
+                 "verdict\tnotes\n")
         for i, r in enumerate(rows):
             fh.write("\t".join([
                 str(i), r["kind"], _sanitize(r["page"]), _sanitize(r["text"]),
@@ -149,17 +194,23 @@ def run(data_dir: str, lang: str, out_dir: str) -> Dict:
                 "" if r["missed_top10"] is None
                 else ("yes" if r["missed_top10"] else "no"),
                 _sanitize(r["gt_context"]),
-                os.path.relpath(r["crop"], out_dir) if r["crop"] else "",
-                os.path.relpath(r["page_png"], out_dir),
-                "", ""]) + "\n")
+                _rel(r["crop"], out_dir) if r["crop"] else "",
+                _rel(r["page_png"], out_dir),
+                _sanitize(r["evidence"]),
+                _sanitize(r["verdict"]), _sanitize(r["notes"])]) + "\n")
 
     def _table(items: List[Dict], start: int = 0) -> str:
         out = []
         for i, r in enumerate(items):
-            crop = (f'<a href="{os.path.relpath(r["crop"], out_dir)}">'
-                    f'<img src="{os.path.relpath(r["crop"], out_dir)}" '
-                    f'style="max-height:44px"></a>') if r["crop"] else "—"
+            if r["crop"]:
+                href = html.escape(_rel(r["crop"], out_dir), quote=True)
+                crop = (f'<a href="{href}">'
+                        f'<img src="{href}" loading="lazy" '
+                        f'style="max-height:44px"></a>')
+            else:
+                crop = "—"
             rank = "missed" if r["missed_top10"] else r["rank"]
+            page_href = html.escape(_rel(r["page_png"], out_dir), quote=True)
             out.append(
                 f'<tr><td>{start + i}</td><td class="mono">'
                 f'{html.escape(r["text"])}'
@@ -167,11 +218,17 @@ def run(data_dir: str, lang: str, out_dir: str) -> Dict:
                 f'<td class="mono">{html.escape(r["flags"])}</td>'
                 f'<td>{rank}</td><td>{crop}</td>'
                 f'<td class="mono small">{html.escape(r["gt_context"])}</td>'
-                f'<td><a href="{os.path.relpath(r["page_png"], out_dir)}">'
-                f'page</a></td></tr>')
+                f'<td><a href="{page_href}">page</a></td>'
+                f'<td class="small">{html.escape(r["evidence"])}</td>'
+                f'<td class="v">{html.escape(r["verdict"])}</td>'
+                f'<td class="v">{html.escape(r["notes"])}</td></tr>')
         return "\n".join(out)
 
-    doc = f"""<!doctype html><meta charset="utf-8">
+    doc = f"""<!doctype html>
+<html lang="ne">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>v2 digit residual audit</title>
 <style>
  body {{ font: 14px/1.45 system-ui, sans-serif; margin: 24px; }}
@@ -180,25 +237,43 @@ def run(data_dir: str, lang: str, out_dir: str) -> Dict:
            vertical-align: top; }}
  .mono {{ font-family: ui-monospace, monospace; }}
  .small {{ font-size: 12px; color: #444; max-width: 560px; }}
+ .v {{ font-size: 12px; background: #fffdf3; }}
  h2 {{ margin-top: 28px; }}
+ img {{ vertical-align: middle; }}
 </style>
+</head>
+<body>
 <h1>nepali_pdf_v2 &mdash; digit residual audit</h1>
-<p>Fill <b>verdict</b> (+ notes) in <code>labels.tsv</code>:
+<p>Fill <b>verdict</b> (+ notes) in <code>labels.tsv</code>
+ (the right-hand two columns below mirror it):
  <b>real</b> = the output is wrong for a user; <b>noise</b> = metric/GT edge
  (e.g. GT anchor artifact, count-level artifact) and the output is fine.</p>
+<p>The <b>evidence</b> column shows the atoms the GT cannot cover on that page.
+ <code>none (all atoms present in GT)</code> means every digit in the token is
+ present in the GT, so the row is a page-level multiplicity artifact rather than
+ a wrong digit in this token; <code>ambiguous-shared-value</code> means the
+ atom value occurs in more than one token, so the multiset diff cannot say which
+ token carries the extra occurrence. Neither is evidence of a real error on its
+ own &mdash; check the crop.</p>
 <h2>Section A &mdash; content errors ({len(errors)})</h2>
 <table><tr><th>#</th><th>token</th><th>atoms</th><th>flags</th>
-<th>queue rank</th><th>crop</th><th>closest GT context</th><th>page</th></tr>
+<th>queue rank</th><th>crop</th><th>closest GT context</th><th>page</th>
+<th>evidence</th><th>verdict</th><th>notes</th></tr>
 {_table(errors, 0)}
 </table>
 <h2>Section B &mdash; missing atoms ({len(missing)})</h2>
 <p>GT numbers the OCR never produced anywhere. Is the GT atom real, and did
 the OCR drop text? (abbreviation marks misread as digits and page furniture
-are known GT noises.)</p>
+are known GT noises.) Rows whose value occurs several times on the page are
+marked: the shown context is the <i>first</i> match and may not be the
+missing occurrence.</p>
 <table><tr><th>#</th><th>atom</th><th>atoms</th><th>flags</th>
-<th>queue rank</th><th>crop</th><th>GT context</th><th>page</th></tr>
+<th>queue rank</th><th>crop</th><th>GT context</th><th>page</th>
+<th>evidence</th><th>verdict</th><th>notes</th></tr>
 {_table(missing, len(errors))}
 </table>
+</body>
+</html>
 """
     with open(os.path.join(out_dir, "audit.html"), "w",
               encoding="utf-8") as fh:
@@ -207,6 +282,11 @@ are known GT noises.)</p>
     summary = {"content_errors": len(errors),
                "missing_atoms": len(missing),
                "missed_top10": sum(1 for r in errors if r["missed_top10"]),
+               "content_errors_no_local_surplus": sum(
+                   1 for r in errors if r["evidence"].startswith("none")),
+               "content_errors_ambiguous": sum(
+                   1 for r in errors
+                   if r["evidence"] == "ambiguous-shared-value"),
                "out_dir": out_dir}
     print(json.dumps(summary, indent=2))
     return summary

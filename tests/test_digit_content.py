@@ -76,3 +76,24 @@ def test_queue_stats_follow_review_queue():
     stats = dc.content_queue_stats([err, clean], "मिति २०८१-०४-२७")
     assert stats["errors"] == 1
     assert stats["recall@10"] == 1.0
+
+
+def test_localized_error_is_not_ambiguous():
+    """A digit that GT never contains is pinned to one token: not ambiguous."""
+    err = _tok("कोभिड-१९", y=0)
+    clean = _tok("वर्ष २०८१", y=20)
+    rep = dc.content_errors([err, clean], "वर्ष २०८१")
+    assert rep["error_tokens"] == [0]
+    assert rep["ambiguous_tokens"] == []
+
+
+def test_shared_value_charge_is_flagged_ambiguous():
+    """Same value in two tokens, GT has it once: the multiset diff cannot say
+    which token carries the extra occurrence, so the charge is reported as
+    ambiguous rather than as evidence-backed."""
+    a = _tok("२०८१-०४-३९", y=0)
+    b = _tok("मिति २०८१-०४-२७", y=20)
+    rep = dc.content_errors([a, b], "मिति २०८१-०४-२७")
+    assert rep["error_tokens"] == [0]
+    # 2081 and 04 occur in both tokens -> token 0's charge is not localized
+    assert rep["ambiguous_tokens"] == [0]
