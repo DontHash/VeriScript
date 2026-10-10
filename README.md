@@ -141,7 +141,7 @@ No number in this repo is marketing.
 | Devanagari — modern government PDFs (raw engine) | CER **0.135 [0.097–0.186]**, exact-token recall 0.877 (n=41, Gemini-2.5-Pro anchor GT, engine-corroborated) |
 | Devanagari — letterpress books (the honest bar) | CER 0.434 [0.387–0.481] raw; **0.373** under the default `auto` line reader (42/69 pages engaged, Appendix AE); exact-token recall 0.647 (n=69, human-corrected ALTO GT) |
 | Devanagari — rendered fixtures | clean CER 0.030/0.028; degraded ne 0.094 (pass) / hi 0.170 (heavy fails) |
-| Digit honesty — 2× re-pass (default ON for Devanagari) | review-queue digit recall@10 **0.88** letterpress / **0.38** PDFs (was 0.73 / 0.15), ≈ +0.4 s/page |
+| Digit honesty — 2× re-pass + date/format validators + a digit-first queue (default ON for Devanagari) | review-queue **digit-content** recall@10 **0.85** government PDFs / **0.91** letterpress; **0.93** on the human-audited residual of the PDF set (owner-verified real errors); the digit-first queue doubles precision@10 (0.10 → 0.21 PDFs; 0.15 → 0.36 letterpress), ≈ +0.4 s/page |
 | Flags + calibration | `script_mismatch`, `invalid_sequence` (impossible combining sequence), isotonic `cal_conf`; ECE 0.82 → 0.30 on scans; optional `unknown_word` lexicon flag (needs `scripts/fetch_nepali_lexicon.py`) lifts the frozen-PDF review queue R@10 **0.148 → 0.175** with the digit queue unchanged |
 | Optional digit verifier (`--digit-verifier bodhan`) | flags 0.71 recall / 0.81 precision; **opt-in** (cost gate failed: +8.3 s/page) |
 | Multi-page PDF | `--max-pages 0` → every page + `<stem>_combined.pdf`/`.txt`; GUI "All pages" checkbox |
