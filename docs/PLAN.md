@@ -3184,3 +3184,74 @@ next batches: two registers (supreme, dcb178), one act (kvsnh9e); add a
 bill/other-act document (mqsvmdf / 8niazhp / zse7v7b) for a third
 typography.
 
+**Batch 3 owner audit (2026-10-10).** All 207 labels reviewed: **200 `ok`,
+7 `fix`** - the page-number footer `99` -> `११`, two `५` column headers,
+two `९८` -> `१८` cells the agent had wrongly confirmed, the merged `जम्मा`
+cell `११७०३६९०` -> `११७०३६९`, and one prose line. Applied by
+`scripts/import_label_review.py`; labels sha256 `55e7a4c6f27b`. **All three
+staging sets are now owner-audited: 317 digit records total** (two registers
++ one act).
+
+## Appendix AS - N5 retry: digit-first fine-tune on owner-audited target-domain data (2026-10-10)
+
+**Question.** N5 (Appendix AF) fine-tuned the Devanagari CRNN on 219 mixed
+crops and failed the verifier gate at precision 0.0; the diagnosed need was
+target-domain ground truth at scale. The correction-loop batches now provide
+**317 owner-audited digit records** (Appendix AR). Does a digit-first
+fine-tune warm-started from the shipped letterpress checkpoint
+(`weights/deva_crnn_h48w512.pt`, h48/w512) clear the N5/AC verifier gate on
+the frozen modern pages?
+
+**Data.** The staged crops + owner-audited labels from
+`target_domain_digit_staging_v1/v2/v3`, labels filtered to the checkpoint
+charset. The base charset is reused rather than rebuilt: the data-only pool
+cannot cover all 134 chars by construction (unlike the N5 synthetic mix),
+so `deva_crnn.train`'s charset-equality contract does not apply and a
+dedicated trainer is used - a recorded deviation. xheavy augmentation
+(`deva_crnn.augment`) expands each crop; a held-out 10% split of
+unaugmented crops tracks overfit.
+
+**Recipe.** `scripts/finetune_digit_crnn.py`: warm start from the shipped
+checkpoint, AdamW lr 2e-4 cosine, 24 epochs, batch 32, h48/w512.
+
+**Gate (pre-registered, same as N2/AC/N5).** `scripts/eval_digit_verifier.py`
+on `nepali_pdf_v2` frozen pages, script-normalized digit sequences: candidate
+precision on engine-candidate conflicts **>= 0.6 -> flag-only verifier;
+>= 0.8 -> gated replacement test; < 0.4 -> stop.** Product-level wiring is
+out of scope for this run (the N5 lesson: measure the screen first).
+
+**Disclosures.** 317 crops is still small and skewed to three documents
+(supreme register, dcb178 register, kvsnh9e act). A pass would not mean
+"done"; a fail would mean the data bottleneck persists. Either way the
+result is recorded. No frozen set is used for tuning; the screen's frozen
+pages only ever measure.
+
+**Result (2026-10-10) - gate FAILED; STOP (per the pre-registered rule).**
+
+Training: 317 owner-audited crops (0 dropped by the charset filter), xheavy
+augmentation x4 -> 1144 train / 31 held-out val, 24 epochs in 266 s on the
+local GPU; val exact-match peaked at **0.677** (plateaued after epoch 5).
+
+Screen (`scripts/eval_digit_verifier.py`; frozen manifest hash verified):
+261 digit tokens (>= 3 digits) on `nepali_pdf_v2`; **158 conflicts, engine
+right 12, candidate fixes 0, both wrong 146, candidate precision on
+conflicts 0.0** (>= 0.6 flag-only / >= 0.8 replacement / < 0.4 stop).
+
+**Diagnosis.** The candidate never produces the correct alternative on a
+single one of the 146 engine-error tokens, and its absolute accuracy on the
+frozen cells is visibly below the engine's (engine `०८००१७६` -> candidate
+`०८००१७८`; engine `२०८१०४३२` -> candidate `११०४२२`). The fine-tune learns
+the staged crop distribution (0.677 exact on held-out crops from the same
+pages) but does not transfer to the frozen pages' cell rendering: a few
+hundred crops across three documents cannot make this CRNN family out-read
+RapidOCR on its home territory. This re-confirms N2 (0.5) and N5 (0.0) with
+materially better data hygiene.
+
+**Decision.** **STOP** - no verifier ships, no further small-CRNN fine-tunes
+of this family (third stop, now with owner-audited data). The remaining
+paths stand as recorded in Appendices AF/AS: a materially stronger reader
+class through the same bake-off gates (VLM-class, CPU-feasible), or accept
+the queue layer as the accuracy story (v2 audited-real R@10 0.9310, two real
+misses) while the data loop keeps supplying a future attempt. Negative
+result kept.
+

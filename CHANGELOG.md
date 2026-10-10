@@ -96,6 +96,24 @@ All notable changes to this project are documented here. The format follows
   labels sha256 `65936693fb24`). Owner review sheet pending. Cumulative:
   110 owner-audited + 207 pending = **317 staged digit records** - at the
   verifier-screen checkpoint once the v3 audit closes.
+- **Batch 3 owner audit closed; N5 retry pre-registered (2026-10-10).**
+  All 207 v3 labels reviewed: **200 `ok`, 7 `fix`** (page footer `99` ->
+  `११`, two `५` headers, two `९८` -> `१८`, merged cell `११७०३६९`), labels
+  sha256 `55e7a4c6f27b`; **all three staging sets owner-audited: 317 digit
+  records** (two registers + one act). Appendix AS pre-registers the N5
+  retry: digit-first fine-tune (`scripts/finetune_digit_crnn.py`, warm start
+  from `weights/deva_crnn_h48w512.pt`, xheavy augmentation) screened by the
+  N2/AC verifier gate on frozen `nepali_pdf_v2` (conflict precision >= 0.6
+  flag-only / >= 0.8 replacement / < 0.4 stop).
+- **N5 retry (Appendix AS) - gate FAILED; STOP.** 317 owner-audited crops,
+  xheavy x4, 24 epochs (val exact 0.677); frozen screen: 261 digit tokens,
+  **158 conflicts, candidate fixes 0 of 146 engine-error tokens, precision
+  0.0** (< 0.4 -> stop). The candidate's absolute accuracy on frozen cells
+  is below the engine's - a few hundred crops across three documents cannot
+  make this CRNN family out-read RapidOCR on its home turf (third stop,
+  after N2 0.5 and N5 0.0, now with better data hygiene). No verifier
+  ships; the audited crops remain a benchmark for any future reader class.
+  New: `scripts/finetune_digit_crnn.py`.
 
 ## [1.5.0] - 2026-10-03
 
