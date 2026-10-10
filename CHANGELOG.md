@@ -85,6 +85,17 @@ All notable changes to this project are documented here. The format follows
   `scripts/import_label_review.py`; labels sha256 `64ea1ebb`. Owner-audited
   target-domain labels now **110** (46 v1 + 64 v2). Next batch should add a
   different document for typography diversity (N5 lesson).
+- **Correction-loop batch 3 (Appendix AR).** Ten non-frozen
+  `विनियोजन ऐन २०८३` (kvsnh9e) pages 8-17 - act schedule tables, a third
+  typography. The legacy-font text layer carries the tables in ASCII, so
+  every number cell was verified against the page: dominant fixes were the
+  ४/५ and १/९ glyph confusions, trailing Latin zeros, merged-cell digits and
+  page-number footers. **253/253 queued tokens acted (134 changed, 119
+  confirmed), 10/10 sessions over the 20% bar, every queue emptied; 207
+  digit-bearing labels** staged (`data/doc_eval/target_domain_digit_staging_v3`,
+  labels sha256 `65936693fb24`). Owner review sheet pending. Cumulative:
+  110 owner-audited + 207 pending = **317 staged digit records** - at the
+  verifier-screen checkpoint once the v3 audit closes.
 
 ## [1.5.0] - 2026-10-03
 

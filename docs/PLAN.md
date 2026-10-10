@@ -3164,3 +3164,23 @@ staging set is now owner-audited.
 N5 lesson (219 mixed crops failed) says the next batch should add
 *typography diversity* - a different document, not more of the same register.
 
+**Batch 3 (2026-10-10, typography diversity).** Ten non-frozen pages of
+`विनियोजन ऐन २०८३` (kvsnh9e, pages 8-17) - act schedules dense with amounts
+and codes, a different layout from the register. The PDF text layer carries
+the schedule tables in ASCII (legacy-font mapping), which let the agent
+verify every number cell against the page; the dominant corrections were the
+४/५ and १/९ glyph confusions (`५` read as `४`, `१` as `9`), trailing Latin
+zeros, merged-cell digits and page-number footers. Measured: **253/253
+queued tokens acted (134 changed, 119 confirmed), 10/10 sessions over the
+20% bar, every queue emptied**; **207 digit-bearing labels** imported
+(`data/doc_eval/target_domain_digit_staging_v3`, labels sha256
+`65936693fb24`). Owner review sheet via `scripts/build_label_review_sheet.py`
+(verdicts pending).
+
+**Cumulative (2026-10-10 end).** Owner-audited 110 (v1+v2); pending audit
+207 (v3). **317 target-domain digit records staged** - at the ~200-400
+verifier-screen checkpoint once the v3 audit closes. Diversity note for the
+next batches: two registers (supreme, dcb178), one act (kvsnh9e); add a
+bill/other-act document (mqsvmdf / 8niazhp / zse7v7b) for a third
+typography.
+
