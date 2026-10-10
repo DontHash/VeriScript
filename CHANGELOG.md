@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-10-10
+
 ### Added
 
 - **Corrected digit-content queue metric (v3) + whole-set error attribution
