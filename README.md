@@ -79,7 +79,16 @@ python -m veriscript --mode document --input report.pdf --output out/report
 
 # Photo upscaling (shares the same CLI/app)
 python cli.py --mode photo --input photos/ --output out/upscaled --scale 4
+
+# Page-turning video: each spread becomes separate left and right PDF pages
+python cli.py --mode video --input book.mp4 --output out/book --video-layout spread
 ```
+
+Experimental **Book video** capture is also available in `/studio`: upload a
+recording, review the selected pages, exclude or reorder them, then export an
+image PDF or add searchable text through the existing OCR pipeline. Single-page
+recordings work too. See [the recording guide](docs/VIDEO_SCAN.md) for limits,
+CLI options, and the real-book acceptance check.
 
 Useful knobs (all default to the measured best configuration):
 

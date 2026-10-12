@@ -36,6 +36,10 @@ python webapp/server.py
 Development: `cd webapp/frontend && npm run dev` (Vite on :5173, proxies `/api`
 to :8000) while the backend runs on :8000.
 
+The studio also has an experimental **Book video** mode: record slow page
+turns with both pages visible, review separate left/right captures, then export
+a PDF with optional OCR. See [recording, limits, and API details](../docs/VIDEO_SCAN.md).
+
 Tools that regenerate web assets from the real pipeline output:
 
 ```bash

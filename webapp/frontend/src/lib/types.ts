@@ -119,6 +119,10 @@ export interface Health {
   busy: boolean;
   limits: {
     max_upload_mb: number;
+    video_upload_mb: number;
+    video_max_pages: number;
+    video_max_seconds: number;
+    pages_per_client: number;
     max_image_megapixels: number;
     max_pages: number;
     ttl_minutes: number;

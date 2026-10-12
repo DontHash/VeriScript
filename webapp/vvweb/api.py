@@ -238,6 +238,9 @@ def create_app() -> FastAPI:
             "busy": _busy(),
             "limits": {
                 "max_upload_mb": settings.max_upload_mb,
+                "video_upload_mb": settings.video_upload_mb,
+                "video_max_pages": settings.video_max_pages,
+                "video_max_seconds": settings.video_max_seconds,
                 "max_image_megapixels": settings.max_image_megapixels,
                 "max_pages": PAGE_CAP,
                 "ttl_minutes": settings.run_ttl_minutes,
@@ -510,6 +513,10 @@ def create_app() -> FastAPI:
 
         return {"removed": correction_memory.clear(),
                 "enabled": correction_memory.memory_enabled()}
+
+    from .video import register_video_routes
+    import sys
+    register_video_routes(app, sys.modules[__name__])
 
     # -- frontend ----------------------------------------------------------
     if os.path.isdir(FRONTEND_DIST):

@@ -30,6 +30,7 @@ def _harden(path: str, mode: int) -> None:
 
 
 PUBLIC_FILES = {
+    "book.pdf": {"media": "application/pdf", "download": "book.pdf"},
     "restored.png": {"media": "image/png", "download": "restored.png"},
     "overlay.png": {"media": "image/png", "download": "overlay.png"},
     "searchable.pdf": {"media": "application/pdf", "download": "searchable.pdf"},

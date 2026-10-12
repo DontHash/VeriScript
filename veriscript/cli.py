@@ -289,11 +289,32 @@ def run_document_mode(args) -> int:
     return 1 if failed else 0
 
 
+def run_video_mode(args) -> int:
+    from veriscript.document.video import VideoOptions, export_video_pdf, extract_video_pages
+
+    try:
+        capture = extract_video_pages(args.input, args.output, VideoOptions(
+            layout=args.video_layout, hold_seconds=args.video_hold,
+            max_pages=args.video_max_pages, max_seconds=args.video_max_seconds))
+        print(f"[cli] captured {len(capture['pages'])} pages")
+        for warning in capture["warnings"]:
+            print(f"  review: {warning}")
+        if not args.video_review_only:
+            path = export_video_pdf(args.output, capture["pages"],
+                                    searchable=args.video_searchable,
+                                    lang=args.lang, backend=args.ocr)
+            print(f"[cli] book PDF: {path}")
+        return 0
+    except (ValueError, OSError, RuntimeError) as exc:
+        print(f"[cli] video scan failed: {exc}", file=sys.stderr)
+        return 1
+
+
 def main():
     configure_logging()
     ap = argparse.ArgumentParser(description="Batch SR upscaler / document restore")
-    ap.add_argument("--mode", choices=["photo", "document"], default="photo")
-    ap.add_argument("--input", required=True, help="file or folder (document mode also accepts .pdf)")
+    ap.add_argument("--mode", choices=["photo", "document", "video"], default="photo")
+    ap.add_argument("--input", required=True, help="file or folder; document mode accepts PDF, video mode accepts a book recording")
     ap.add_argument("--output", required=True, help="output folder")
     ap.add_argument("--model", default="auto",
                     help="photo mode: auto | <path>.pth | <path>.onnx | ncnn:<name> | bicubic | lanczos")
@@ -396,7 +417,21 @@ def main():
     doc.add_argument("--no-txt", action="store_true", dest="no_txt")
     doc.add_argument("--no-md", action="store_true", dest="no_md",
                      help="skip the Markdown transcript (.md)")
+    video = ap.add_argument_group("video book scan")
+    video.add_argument("--video-layout", choices=["auto", "single", "spread"], default="auto",
+                       help="spread: split each view into left/right PDF pages; auto uses aspect ratio")
+    video.add_argument("--video-hold", type=float, default=0.75,
+                       help="minimum steady view in seconds (default .75)")
+    video.add_argument("--video-max-pages", type=int, default=150)
+    video.add_argument("--video-max-seconds", type=float, default=600)
+    video.add_argument("--video-searchable", action="store_true",
+                       help="run existing OCR on captured pages (slower); default is an image PDF")
+    video.add_argument("--video-review-only", action="store_true",
+                       help="save selected page images + capture.json without exporting a PDF")
     args = ap.parse_args()
+
+    if args.mode == "video":
+        sys.exit(run_video_mode(args))
 
     if args.mode == "document":
         sys.exit(run_document_mode(args))

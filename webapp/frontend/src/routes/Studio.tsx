@@ -1,4 +1,5 @@
-import { Show } from "solid-js";
+import { createSignal, Show } from "solid-js";
+import { VideoScanner } from "../components/VideoScanner";
 import { SheetStage } from "../components/SheetStage";
 import { StudioPanel } from "../components/StudioPanel";
 import { StudioResults } from "../components/StudioResults";
@@ -6,20 +7,28 @@ import { createStudioState } from "../lib/studio-state";
 
 export function Studio() {
   const studio = createStudioState();
+  const [mode, setMode] = createSignal<"page" | "video">("page");
 
   return (
     <div class="studio">
       <div class="container">
         <div class="studio__head">
           <span class="eyebrow">Studio</span>
-          <h1 class="h2">Restore a page — and watch it show its work.</h1>
+          <h1 class="h2">Restore a page, or capture a book.</h1>
           <p class="lede">
-            One page at a time. Processing happens on this server for the demo; the app itself is
+            Photos, PDFs, and page-turning videos. Processing happens on the server running this studio; the app itself is
             built to run offline, on your machine.
           </p>
         </div>
 
-        <div class="studio__grid">
+        <div class="tabs" aria-label="Scan mode">
+          <button class="tab" aria-pressed={mode() === "page"}
+            disabled={studio.phase() === "running"} onClick={() => setMode("page")}>Photo / PDF</button>
+          <button class="tab" aria-pressed={mode() === "video"}
+            disabled={studio.phase() === "running"} onClick={() => setMode("video")}>Book video</button>
+        </div>
+        <div hidden={mode() !== "video"}><VideoScanner /></div>
+        <div class="studio__grid" hidden={mode() !== "page"}>
           <div class="studio__panel">
             <StudioPanel state={studio} />
           </div>

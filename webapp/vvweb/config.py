@@ -27,6 +27,11 @@ class Settings:
     # Upload limits
     max_upload_mb: int = field(default_factory=lambda: _env_int("WEB_MAX_UPLOAD_MB", 12))
     max_image_megapixels: int = field(default_factory=lambda: _env_int("WEB_MAX_MP", 30))
+    video_upload_mb: int = field(default_factory=lambda: _env_int("WEB_VIDEO_UPLOAD_MB", 512))
+    video_max_pages: int = field(default_factory=lambda: _env_int("WEB_VIDEO_MAX_PAGES", 150))
+    video_max_seconds: int = field(default_factory=lambda: _env_int("WEB_VIDEO_MAX_SECONDS", 600))
+    video_timeout_s: int = field(default_factory=lambda: _env_int("WEB_VIDEO_TIMEOUT_S", 600))
+    video_pages_per_client: int = field(default_factory=lambda: _env_int("WEB_VIDEO_PAGES_PER_CLIENT", 200))
 
     # Processing
     process_timeout_s: int = field(default_factory=lambda: _env_int("WEB_TIMEOUT_S", 180))
