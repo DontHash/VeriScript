@@ -61,8 +61,10 @@ not read as a page change. Adjacent repeated views are suppressed; returning to
 a different previously seen page is retained. Similar pages can still be missed,
 and a pause with an obstruction can still be selected. A spread that is not
 held still for the hold interval, or a turn whose motion never drops the
-similarity below the comparison floor, is not captured. Scores are relative
-heuristics, not probabilities.
+similarity below the comparison floor, is not captured. When a spread yields
+one normal half and one sliver (a turning leaf or hand over that page), the
+sliver is dropped with a warning naming the page for re-capture rather than
+exported as a torn page. Scores are relative heuristics, not probabilities.
 
 Cropping is two-stage and deterministic: a clean convex quadrilateral (a page
 or spread seen edge-on against a plain background) is perspective-rectified;
@@ -136,10 +138,12 @@ kept the full frame (`cropped: false`), and the spread split cut at the frame
 midpoint even though the book sat left of centre, so captured halves carried
 carpet, a curled leaf, and slices of the neighbouring page. The 2026-10-12
 crop rework (paper-mask segmentation plus gutter detection) fixes this on the
-same footage: all 24 pages are cropped to the paper region (`cropped: true`),
-the binding cut lands on the gutter on every spread, and one spread half that
-is mostly a turning leaf is reported at its real (small) width for review
-exclusion rather than passed off as a page.
+same footage: 23 pages are cropped to the paper region (`cropped: true`),
+the binding cut lands on the gutter on every spread, and the one spread half
+that is mostly a turning leaf (page 71 at t=20.13s) is dropped automatically
+with an explicit warning (`Right side at t=20.13s is mostly covered (turning
+leaf or hand); dropped - re-record that page.`) instead of exporting a torn
+page. That page must be re-recorded; the drop is detectable, not repairable.
 
 The page remains ~330x478 px in a half of an 848x478 frame; that is a
 recording-resolution limit, not a cropping limit. Re-recording at 1080p or

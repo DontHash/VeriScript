@@ -234,7 +234,7 @@ def _gutter_cut(view: np.ndarray, paper: np.ndarray) -> int | None:
     gray = cv2.cvtColor(view, cv2.COLOR_BGR2GRAY)
     profile = np.where(span > 0.5, gray.mean(axis=0), 255.0).astype(np.float32)
     profile = cv2.GaussianBlur(profile[None, :], (0, 0), 3)[0]
-    lo, hi = x + int(w * 0.28), x + int(w * 0.72)
+    lo, hi = x + int(w * 0.26), x + int(w * 0.78)
     # When the paper bbox tails off (a leaf or finger crossing the page), the
     # bulk of the book ends before that tail: cap the search at the end of the
     # first contiguous full-span run, so a tail's shadow cannot pull the cut.
@@ -368,13 +368,29 @@ def _split_view(view: np.ndarray, layout: str):
     if paper is None or (paper > 0).mean() < 0.08:
         return _fixed_split(view, layout)
     paper = cv2.resize(paper, (w, h), interpolation=cv2.INTER_NEAREST)
-    # A curled leaf or finger over a page slots columns or rows of weak paper
-    # into the bbox. Kill pixels in columns/rows where paper presence drops to
-    # under half the bbox peak before cropping; that tail is never body text.
+    # A curled leaf or finger over a page introduces columns/rows whose paper
+    # presence drops to a fraction of the bbox peak. From each outer edge
+    # inward, such pixels are dropped only while the column/row carries no
+    # ink: a leaf lying over live text must never cut the text, blank tails
+    # (a turned-up leaf corner at the frame edge) may go. The remaining sliver
+    # gets dropped wholesale by the width-ratio rule in the caller.
+    gray = cv2.cvtColor(view, cv2.COLOR_BGR2GRAY)
     span = (paper > 0).mean(axis=0)
+    ink_col = ((paper > 0) & (gray < 100)).sum(axis=0)
+    weak = np.nonzero(span < 0.5 * float(span.max()))[0]
+    for sweep in (weak, weak[::-1]):
+        for x in sweep:
+            if ink_col[x] > 2:
+                break
+            paper[:, x] = 0
     rowspan = (paper > 0).mean(axis=1)
-    paper[:, span < 0.5 * float(span.max())] = 0
-    paper[rowspan < 0.5 * float(rowspan.max()), :] = 0
+    ink_row = ((paper > 0) & (gray < 100)).sum(axis=1)
+    weak_rows = np.nonzero(rowspan < 0.5 * float(rowspan.max()))[0]
+    for sweep in (weak_rows, weak_rows[::-1]):
+        for y in sweep:
+            if ink_row[y] > 2:
+                break
+            paper[y, :] = 0
     bx, by, bw, bh = cv2.boundingRect(paper)
     aspect = bw / max(1, bh)
     cut = _gutter_cut(view, paper)
@@ -427,6 +443,20 @@ def extract_video_pages(path: str, out_dir: str, options: VideoOptions | None = 
                                                      _VIEW_DUPLICATE):
             return
         split = _split_view(view, options.layout)
+        # A real spread's two halves have similar widths (paired halves of the
+        # same book read 0.83+ on the reference footage). One normal half plus
+        # one sliver is an obstruction over that page - a turning leaf or a
+        # hand - which no crop can repair. Drop the sliver with an explicit
+        # warning instead of exporting a torn page.
+        if len(split) == 2 and split[0][0] != split[1][0]:
+            wl, wr = split[0][1].shape[1], split[1][1].shape[1]
+            if min(wl, wr) < 0.6 * max(wl, wr):
+                narrow = split[0] if wl <= wr else split[1]
+                split = [s for s in split if s is not narrow]
+                warnings.append(
+                    f"{narrow[0].capitalize()} side at t={timestamp:.2f}s is "
+                    "mostly covered (turning leaf or hand); dropped - "
+                    "re-record that page.")
         if len(pages) + len(split) > options.max_pages:
             capped = True
             return

@@ -254,3 +254,21 @@ def test_no_paper_side_dropped_when_book_is_single_page(tmp_path):
     capture = extract_video_pages(str(src), str(tmp_path / "out"))
     assert [p["side"] for p in capture["pages"]] == ["single"]
     assert capture["pages"][0]["width"] < frame.shape[1]  # cropped to the page
+
+
+def test_mostly_obstructed_spread_side_is_dropped_with_warning(tmp_path):
+    """One normal half + one sliver is a turning leaf over that page, not a
+    page seen narrowly: drop the sliver and say which page needs re-capture."""
+    frame = _spread(9)
+    # right page: text strip beside the gutter, then a featureless white leaf
+    # bundle filling the rest of the half (the real obstruction shape)
+    right_patch = frame[:, 360:].copy()
+    frame[:, 360:] = 35
+    frame[:, 360:430] = right_patch[:, :70]
+    frame[:, 430:470] = (242, 242, 242)
+    src = _clip(tmp_path / "book.avi", [frame])
+    capture = extract_video_pages(str(src), str(tmp_path / "out"),
+                                  VideoOptions(layout="spread"))
+    sides = [p["side"] for p in capture["pages"]]
+    assert sides == ["left"], sides
+    assert any("re-record" in w for w in capture["warnings"])
