@@ -150,11 +150,11 @@ modest - e.g. the reader sees "farma disappeared and weee replaced by tidy
 homes" for "farms disappeared and were replaced by tidy homes" - so the text
 layer is a finding aid, not a transcription, until higher-resolution
 recordings exist. Recorded searchable-export speed on this footage
-(DirectML, RapidOCR): about 3.5-4 s/page including the 2.5x Lanczos upscale
-and the dual-stream audit pass; a 150-page book is a long export and the
-600 s web timeout caps a searchable export at roughly 150 pages only on fast
-machines - use `--video-review-only` plus a batch OCR run for full books, or
-re-record in sections.
+(DirectML, RapidOCR): about 3.5-7.5 s/page depending on machine load,
+including the 2.5x Lanczos upscale and the dual-stream audit pass; a
+150-page book is a long export and the 600 s web timeout caps a searchable
+export at roughly 80-150 pages on a fast machine - use `--video-review-only`
+plus a batch OCR run for full books, or re-record in sections.
 
 Still open before the gate can be closed: record representative Devanagari and
 Nepali books with known page sequences, flag every missed/duplicate/obstructed
