@@ -300,10 +300,15 @@ def run_video_mode(args) -> int:
         for warning in capture["warnings"]:
             print(f"  review: {warning}")
         if not args.video_review_only:
+            # --video-pdf is canonical; --video-searchable maps onto it for
+            # compatibility. Digital wins when both are requested.
+            mode = args.video_pdf or ("searchable" if args.video_searchable
+                                      else "clean")
             path = export_video_pdf(args.output, capture["pages"],
-                                    searchable=args.video_searchable,
+                                    searchable=mode == "searchable",
+                                    digital=mode == "digital",
                                     lang=args.lang, backend=args.ocr)
-            print(f"[cli] book PDF: {path}")
+            print(f"[cli] {mode} PDF: {path}")
         return 0
     except (ValueError, OSError, RuntimeError) as exc:
         print(f"[cli] video scan failed: {exc}", file=sys.stderr)
@@ -426,6 +431,11 @@ def main():
     video.add_argument("--video-max-seconds", type=float, default=600)
     video.add_argument("--video-searchable", action="store_true",
                        help="run existing OCR on captured pages (slower); default is an image PDF")
+    video.add_argument("--video-pdf", choices=["clean", "searchable", "digital"],
+                       default=None,
+                       help="export mode: clean pristine image PDF (default), "
+                            "searchable image + invisible OCR layer, or digital "
+                            "word-style text PDF re-typeset from OCR")
     video.add_argument("--video-review-only", action="store_true",
                        help="save selected page images + capture.json without exporting a PDF")
     args = ap.parse_args()

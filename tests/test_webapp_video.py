@@ -99,6 +99,8 @@ def test_ocr_allowance_and_worker_busy(client, tmp_path, monkeypatch):
     url = f"/api/runs/{result['run_id']}/video-export"
     monkeypatch.setattr(api, "client_pages", DailyKeyedQuota(1))
     assert client.post(url, json={"pages": [0, 1], "searchable": True}).status_code == 429
+    # Digital export is an OCR mode and is budgeted the same way.
+    assert client.post(url, json={"pages": [0, 1], "pdf": "digital"}).status_code == 429
     # Image export remains available for a book larger than the OCR budget.
     assert client.post(url, json={"pages": [0, 1]}).status_code == 200
     assert api._worker_sem.acquire(blocking=False)
@@ -106,6 +108,28 @@ def test_ocr_allowance_and_worker_busy(client, tmp_path, monkeypatch):
         assert client.post(url, json={"pages": [0]}).status_code == 503
     finally:
         api._worker_sem.release()
+
+
+def test_pdf_kind_validation_and_digital_export(client, tmp_path, monkeypatch):
+    result = scan(client, tmp_path)
+    url = f"/api/runs/{result['run_id']}/video-export"
+    assert client.post(url, json={"pages": [0], "pdf": "bogus"}).status_code == 400
+    seen = {}
+
+    def fake_export(out_dir, pages, **kwargs):
+        seen.update(kwargs)
+        (Path(out_dir) / "book.pdf").write_bytes(b"%PDF-1.4 fake")
+        return str(Path(out_dir) / "book.pdf")
+
+    monkeypatch.setattr(video, "export_video_pdf", fake_export)
+    response = client.post(url, json={"pages": [0], "pdf": "digital"})
+    assert response.status_code == 200
+    assert response.json()["digital"] is True
+    assert seen["digital"] is True and seen["searchable"] is False
+    response = client.post(url, json={"pages": [0]})
+    assert response.status_code == 200
+    assert response.json()["digital"] is False
+    assert seen["digital"] is False and seen["searchable"] is False
 
 
 def test_timeout_retains_worker_until_cancelled_thread_exits(client, tmp_path, monkeypatch):

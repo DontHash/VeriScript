@@ -170,12 +170,17 @@ def register_video_routes(app, state):
         searchable = body.get("searchable", False)
         if type(searchable) is not bool:
             raise HTTPException(400, "searchable must be true or false.")
+        pdf_kind = body.get("pdf") or ("searchable" if searchable else "clean")
+        if pdf_kind not in {"clean", "searchable", "digital"}:
+            raise HTTPException(400, "Choose pdf: clean, searchable, or digital.")
+        digital = pdf_kind == "digital"
+        searchable = searchable or pdf_kind == "searchable"
         lang = body.get("lang", "en")
         if not isinstance(lang, str) or lang not in {"en", "ne", "hi"}:
             raise HTTPException(400, "Choose English, Nepali, or Hindi.")
-        # Only OCR consumes the expensive per-client OCR allowance. Image-PDF
+        # OCR modes consume the expensive per-client OCR allowance. Image-PDF
         # assembly uses the already charged, separate capture-page budget.
-        if searchable:
+        if searchable or digital:
             allowed, retry = state.client_pages.check(client_key(request), len(ids))
             if not allowed:
                 raise HTTPException(429, "OCR page budget exceeded. Export an image PDF or raise the local OCR allowance.",
@@ -186,7 +191,8 @@ def register_video_routes(app, state):
                                     headers={"Retry-After": str(retry)})
         selected = [known[i] for i in ids]
         await work(lambda cancel: export_video_pdf(
-            run_dir, selected, searchable=searchable,
+            run_dir, selected, searchable=searchable, digital=digital,
             lang=None if lang == "en" else lang, cancel=cancel))
         return {"run_id": run_id, "pages_exported": len(selected),
-                "searchable": searchable, "pdf": f"/api/runs/{run_id}/files/book.pdf"}
+                "searchable": searchable or digital, "digital": digital,
+                "pdf": f"/api/runs/{run_id}/files/book.pdf"}

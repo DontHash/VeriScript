@@ -164,6 +164,45 @@ def test_searchable_export_uses_shared_pipeline(tmp_path, monkeypatch):
         assert "BOOK PAGE" in pdf[0].get_textpage().get_text_range()
 
 
+def test_digital_export_retypesets_text_without_page_images(tmp_path, monkeypatch):
+    """The word-style PDF: real flowing text on A4, no captured pixels."""
+    import pypdfium2 as pdfium
+    from types import SimpleNamespace
+    from veriscript.document import pipeline
+    from veriscript.document.ocr import Token
+
+    name = "capture_0000.jpg"
+    cv2.imwrite(str(tmp_path / name), np.full((200, 140, 3), 240, np.uint8))
+    def fake(img, **kwargs):
+        return SimpleNamespace(display_bgr=img, ocr=SimpleNamespace(tokens=[
+            Token(text="SEVEN", conf=99, bbox=(30, 10, 90, 24), granularity="line"),
+            Token(text="KNOX HAD A BIG MOUTH.", conf=99, bbox=(10, 60, 120, 80),
+                  granularity="line")]))
+    monkeypatch.setattr(pipeline, "run_document_pipeline", fake)
+    path = export_video_pdf(str(tmp_path), [{"id": 0, "file": name}],
+                            digital=True)
+    with pdfium.PdfDocument(path) as pdf:
+        assert len(pdf) == 1
+        text = pdf[0].get_textpage().get_text_range()
+        assert "SEVEN" in text and "KNOX" in text
+        # A4 word-style page, not the capture's aspect ratio
+        size = pdf[0].get_size()
+        assert abs(size[0] / size[1] - 595.0 / 842.0) < 0.02
+
+
+def test_clean_export_pristine_upscale(tmp_path):
+    """Small captures are upscaled 2x in the default clean PDF."""
+    import pypdfium2 as pdfium
+
+    name = "capture_0000.jpg"
+    cv2.imwrite(str(tmp_path / name), np.full((150, 200, 3), 240, np.uint8))
+    path = export_video_pdf(str(tmp_path), [{"id": 0, "file": name}])
+    with pdfium.PdfDocument(path) as pdf:
+        width = pdf[0].get_size()[0]
+    # 150 dpi estimate doubled from 200px: 200*2*72/150 = 192pt, plus smooth
+    assert width > 140
+
+
 def test_perspective_rectification_and_explicit_single_override():
     frame = _spread(2)
     transform = cv2.getPerspectiveTransform(
@@ -202,6 +241,43 @@ def test_cli_video_dispatch_exports_and_review_only(tmp_path, monkeypatch):
         assert result.value.code == 0
         assert (output / "capture.json").exists()
         assert (output / "book.pdf").exists() is not review
+
+
+def test_cli_pdf_mode_routes_to_digital_export(tmp_path, monkeypatch):
+    import sys
+    from types import SimpleNamespace
+    from veriscript.document import video as video_mod
+    from veriscript.cli import main
+
+    source = _clip(tmp_path / "book.avi", [_spread(1)])
+    seen = {}
+
+    def fake_export(out_dir, pages, **kwargs):
+        out = tmp_path / "dig"
+        out.mkdir(exist_ok=True)
+        seen.update(kwargs)
+        return str(out / "book.pdf")
+
+    monkeypatch.setattr(video_mod, "extract_video_pages", lambda *a, **k: {
+        "pages": [{"id": 0, "file": "capture_0000.jpg"}], "warnings": []})
+    monkeypatch.setattr(video_mod, "export_video_pdf", fake_export)
+    args = ["veriscript", "--mode", "video", "--input", str(source),
+            "--output", str(tmp_path / "dig"), "--video-layout", "spread",
+            "--video-pdf", "digital"]
+    monkeypatch.setattr(sys, "argv", args)
+    with pytest.raises(SystemExit) as result:
+        main()
+    assert result.value.code == 0
+    assert seen["digital"] is True and seen["searchable"] is False
+
+    monkeypatch.setattr(sys, "argv", ["veriscript", "--mode", "video",
+                                      "--input", str(source),
+                                      "--output", str(tmp_path / "clean"),
+                                      "--video-searchable"])
+    with pytest.raises(SystemExit) as result:
+        main()
+    assert result.value.code == 0
+    assert seen["digital"] is False and seen["searchable"] is True
 
 
 def test_hundred_page_book_streams_to_pdf(tmp_path):

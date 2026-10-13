@@ -20,9 +20,34 @@ export uses VeriScript's existing English/Nepali/Hindi OCR pipeline.
    page** for one page, or **Auto** to infer the layout from the cropped shape.
 6. Choose **Find page frames**. Check all previews against the physical book.
    Uncheck duplicates or obstructed frames; use Earlier / Later to change order.
-7. Export the selected pages. Enable searchable text only if you need OCR (it
-   costs ~3.5-4 s per page on this footage and the web request timeout caps
-   how many pages fit in one export).
+7. Export the selected pages. The default is the clean pristine image PDF;
+   the two OCR modes cost ~3.5-8 s per page and the web request timeout caps
+   their scale.
+
+### Export modes (`--video-pdf`, web "PDF type")
+
+| Mode | Output | Cost |
+|---|---|---|
+| `clean` (default) | Pristine page-image PDF: small captures are upscaled 2x
+  (Lanczos + mild unsharp) so text prints crisp. No OCR. | ~0.15 s/page |
+| `searchable` | The clean pages plus an invisible, selectable OCR text layer. | ~3.5-8 s/page |
+| `digital` | A word-style PDF: no page images. Recognized text (same OCR path)
+  re-typeset as flowing A4 paragraphs - headings centred, body justified,
+  dialogue indents kept. 23 captures -> 13 text pages, ~56 KB, vs ~15 MB image. | OCR cost |
+
+Text boundaries are trusted only inside the page: OCR tokens that touch a
+crop border (the neighbour-page sliver or a sliced word stem) are dropped
+before re-typeset, so the digital PDF contains no partial words. At the
+reference footage's 330-px page width the text layer is a finding aid - page
+numbers 58-82 extract in order, but body words carry OCR noise ("farma",
+"whor") until recordings at 1080p exist.
+
+Super-resolution was evaluated for the OCR path and rejected with numbers:
+RealESRGAN x4plus/x4v3 (bundled weights) on 330-px text produces
+smoother-looking images but _garbled_ readings ("Tho Lomı Jooppeord and u
+roplaod") while plain Lanczos 2.5x reads layout, order and page numbers
+correctly at the same cost or less. Do not wire SR into text OCR at this
+source resolution; revisit with 1080p captures.
 
 Review cannot recover a page the recording missed. Re-record missing sections.
 This version does not merge multiple videos, manually adjust crops, remove
@@ -37,8 +62,12 @@ the frame — when the binding is not found.
 
 ```powershell
 python -m veriscript --mode video --input book.mp4 --output out/book --video-layout spread
-python -m veriscript --mode video --input book.mp4 --output out/book --video-layout spread --video-searchable --lang ne
+python -m veriscript --mode video --input book.mp4 --output out/book --video-layout spread --video-pdf clean
+python -m veriscript --mode video --input book.mp4 --output out/book --video-layout spread --video-pdf digital --lang ne
 ```
+
+`--video-pdf clean|searchable|digital` picks the export mode (default clean).
+`--video-searchable` still works and maps onto `--video-pdf searchable`.
 
 The CLI writes `capture_0000.jpg`, subsequent captures, `capture.json` with
 timestamps/sides/crop warnings, and `book.pdf`. It exports all captured pages in

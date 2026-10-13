@@ -27,7 +27,7 @@ export function VideoScanner() {
   const [file, setFile] = createSignal<File | null>(null);
   const [layout, setLayout] = createSignal("auto");
   const [lang, setLang] = createSignal("en");
-  const [searchable, setSearchable] = createSignal(false);
+  const [pdfKind, setPdfKind] = createSignal("clean");
   const [capture, setCapture] = createSignal<Capture | null>(null);
   const [order, setOrder] = createSignal<number[]>([]);
   const [excluded, setExcluded] = createSignal<number[]>([]);
@@ -76,7 +76,7 @@ export function VideoScanner() {
     if (!result || busy() || !selected().length) return;
     setPhase("export"); setError(null); invalidate();
     try {
-      const body = JSON.stringify({ pages: selected(), searchable: searchable(), lang: lang() });
+      const body = JSON.stringify({ pages: selected(), pdf: pdfKind(), lang: lang() });
       const exported = await responseJson(await fetch(`/api/runs/${result.run_id}/video-export`, {
         method: "POST", headers: { "Content-Type": "application/json" }, body,
       }));
@@ -138,17 +138,23 @@ export function VideoScanner() {
           </article>;
         }}</For>
       </div>
-      <label class="checkbox"><input type="checkbox" checked={searchable()} disabled={busy()}
-        onChange={(e) => { setSearchable(e.currentTarget.checked); invalidate(); }} />
-        <span>Add searchable text using OCR (slower)</span></label>
-      <Show when={searchable()}>
+      <div class="field">
+        <label class="field__label" for="video-pdf">PDF type</label>
+        <select id="video-pdf" class="select" value={pdfKind()} disabled={busy()}
+          onChange={(e) => { setPdfKind(e.currentTarget.value); invalidate(); }}>
+          <option value="clean">Clean pristine pages (image PDF, fast)</option>
+          <option value="searchable">Image pages with searchable text (OCR)</option>
+          <option value="digital">Typeset text, word-style (OCR)</option>
+        </select>
+      </div>
+      <Show when={pdfKind() !== "clean"}>
         <div class="field"><label class="field__label" for="video-lang">OCR language</label>
           <select id="video-lang" class="select" value={lang()} disabled={busy()}
             onChange={(e) => { setLang(e.currentTarget.value); invalidate(); }}>
             <option value="en">English</option><option value="ne">Nepali</option><option value="hi">Hindi</option>
           </select>
           <p class="field__hint">The current OCR allowance is {limits().ocr || "unlimited"} pages per visitor per day.
-            A full book can take several minutes. Image PDFs preserve the captures without OCR.</p>
+            A full book can take several minutes (~4–8 s per page). The clean image PDF preserves the captures without OCR.</p>
         </div>
       </Show>
       <button class="btn btn--primary" disabled={busy() || !selected().length} onClick={() => void exportPdf()}>

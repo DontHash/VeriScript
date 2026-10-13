@@ -546,21 +546,63 @@ def extract_video_pages(path: str, out_dir: str, options: VideoOptions | None = 
     return manifest
 
 
+def _render_pristine(image: np.ndarray) -> np.ndarray:
+    """Pristine page render for the clean PDF: upscale small captures 2x with
+    Lanczos and a mild unsharp. Deterministic, no model, no glyph invention.
+    """
+    h, w = image.shape[:2]
+    if min(h, w) >= 1000:
+        return image
+    sharp = cv2.addWeighted(image, 1.25,
+                            cv2.GaussianBlur(image, (0, 0), 1.1), -0.25, 0)
+    return cv2.resize(sharp, (w * 2, h * 2), interpolation=cv2.INTER_LANCZOS4)
+
+
+def _drop_border_tokens(tokens: list, image: np.ndarray) -> list:
+    """Drop OCR tokens clipped by the page image's left/right borders.
+
+    A legitimate line never touches the paper edge (page margins bound every
+    real row). Tokens that touch the border are slivers of the neighbouring
+    page or the stem of a word the crop sliced; word-style output must not
+    contain partial words, so clipped tokens are always excluded.
+    """
+    h, w = image.shape[:2]
+    kept = []
+    for tok in tokens:
+        x0, y0, x1, y1 = tok.bbox
+        if x1 >= w - 2 or x0 <= 2:
+            continue
+        if y1 >= h - 2 or y0 <= 2:
+            continue
+        kept.append(tok)
+    return kept
+
+
 def export_video_pdf(out_dir: str, pages: list[dict], *, searchable: bool = False,
+                     digital: bool = False,
                      lang: str | None = None, backend: str | None = None,
                      scale: int | None = None,
                      cancel: Callable[[], bool] | None = None) -> str:
-    """Stream selected pages into one PDF, optionally using the shared OCR path.
+    """Stream selected pages into one PDF in the requested export mode.
 
-    `searchable=True` runs the shared document pipeline per page (restore,
-    deskew, OCR) and lays the invisible text over the page image; small
-    captures are upscaled 2x first so OCR sees usable stroke heights.
-    Per-page side artifacts (txt/md/json) are written next to the captures.
+    Modes:
+      * clean (default)  - pristine page-image PDF: small captures are
+        upscaled 2x (Lanczos + mild unsharp) so the text looks crisp.
+      * searchable=True  - the image PDF plus an invisible, selectable OCR
+        layer (the shared document pipeline per page).
+      * digital=True     - a word-style PDF: no page images, the recognized
+        text re-typeset as flowing paragraphs (headings centred, body
+        justified on A4). Text is extracted with the same OCR path.
+
+    Per-page OCR side artifacts (txt/md/json) are written next to the
+    captures for both OCR modes. `digital` wins over `searchable` when both
+    are set: the typeset page is already selectable.
     """
     from veriscript.document.export import write_searchable_pdf_pages
 
     if not pages:
         raise ValueError("Select at least one page.")
+    results = []
 
     def images():
         for page in pages:
@@ -570,14 +612,15 @@ def export_video_pdf(out_dir: str, pages: list[dict], *, searchable: bool = Fals
             if image is None:
                 raise ValueError("A captured page is unavailable. Scan the video again.")
             tokens = []
-            if searchable:
+            if searchable or digital:
                 from veriscript.document.pipeline import run_document_pipeline
                 # Video captures are often small (a spread half from an 848px
                 # frame is ~330x478) and glyph strokes land under the OCR
                 # detector's floor. Upscale the *grayscale* page with Lanczos
-                # before OCR — grayscale keeps JPEG chroma noise out of the
+                # before OCR - grayscale keeps JPEG chroma noise out of the
                 # interpolation, and plain Lanczos (measured) beats sharpening
-                # and the restoration pipeline for token count here.
+                # and the SR networks for reading here (RealESRGAN garbles
+                # text at this resolution; see docs/VIDEO_SCAN.md).
                 upscale = scale if scale is not None else (
                     2.5 if min(image.shape[:2]) < 700 else 1)
                 if upscale != 1:
@@ -591,13 +634,29 @@ def export_video_pdf(out_dir: str, pages: list[dict], *, searchable: bool = Fals
                     out_dir=out_dir, stem=f"capture_{page['id']:04d}_ocr",
                     make_pdf=False, make_overlay=False, make_txt=True,
                     make_md=True, make_json=True)
-                image, tokens = result.display_bgr, result.ocr.tokens
+                token_list = _drop_border_tokens(list(result.ocr.tokens), image)
+                result.ocr.tokens = token_list
+                image, tokens = result.display_bgr, token_list
+                if digital:
+                    results.append(result.ocr)
+                    continue  # the typeset PDF carries no page image
+            else:
+                image = _render_pristine(image)
             yield image, tokens, None
 
     target = str(Path(out_dir) / "book.pdf")
     temporary = str(Path(out_dir) / ".book.pdf")
     try:
-        write_searchable_pdf_pages(temporary, images(), title="Captured book")
+        if digital:
+            from veriscript.document.textpdf import write_text_pdf
+            generator = images()
+            for _ in generator:
+                pass  # drain: writes per-page side artifacts, collects results
+            if not results:
+                raise ValueError("No text recognized. Export the clean image PDF instead.")
+            write_text_pdf(temporary, results, title="Captured book")
+        else:
+            write_searchable_pdf_pages(temporary, images(), title="Captured book")
         _check_cancel(cancel)
         os.replace(temporary, target)
     finally:
