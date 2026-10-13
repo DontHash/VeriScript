@@ -79,6 +79,22 @@ extension ExportLabels on ExportKind {
     ExportKind.corrections => 'Review data · JSON',
   };
   bool get needsText => this != ExportKind.imagePdf;
+  String get guidance => switch (this) {
+    ExportKind.imagePdf =>
+      'Keep the original page appearance for sharing or printing. No text recognition needed.',
+    ExportKind.searchablePdf =>
+      'Keep the page image and add recognized text for search and selection. A good choice for Nepali scans.',
+    ExportKind.digitalPdf =>
+      'Create new pages from recognized text. Spacing and Nepali text selection can differ; use searchable scans when the original layout matters.',
+    ExportKind.docx =>
+      'Edit the recognized text in Word or another document editor. Page formatting will differ from the scan.',
+    ExportKind.txt =>
+      'Copy or reuse just the recognized text, without page formatting.',
+    ExportKind.markdown =>
+      'Use recognized text with document and page headings in a notes app.',
+    ExportKind.corrections =>
+      'Save original readings, corrections and number-review evidence for checking later.',
+  };
   String get extension => switch (this) {
     ExportKind.docx => 'docx',
     ExportKind.txt => 'txt',

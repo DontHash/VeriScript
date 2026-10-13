@@ -10,6 +10,7 @@ import 'exports.dart';
 import 'processing.dart';
 import 'capture.dart';
 import 'editor.dart';
+import 'copy.dart';
 
 class ReviewScreen extends StatefulWidget {
   const ReviewScreen({
@@ -33,9 +34,11 @@ class _ReviewScreenState extends State<ReviewScreen> {
   String status = '';
   double? fraction;
   OfflineProcessor? processor;
+  bool grid = true;
   @override
   void initState() {
     super.initState();
+    grid = widget.settings.getBool('reviewGrid') ?? true;
     native.setMethodCallHandler((call) async {
       if (call.method == 'progress' && mounted && busy) {
         setState(
@@ -347,16 +350,22 @@ class _ReviewScreenState extends State<ReviewScreen> {
             mainAxisSize: MainAxisSize.min,
             children: [
               const Padding(
-                padding: EdgeInsets.all(20),
+                padding: EdgeInsets.all(24),
                 child: Text('Choose an export', style: TextStyle(fontSize: 24)),
+              ),
+              const Padding(
+                padding: EdgeInsets.fromLTRB(24, 0, 24, 16),
+                child: Text(
+                  'Text exports recognize unread selected pages first. Review names and numbers before sharing.',
+                ),
               ),
               ...ExportKind.values.map(
                 (kind) => ListTile(
                   title: Text(kind.label),
-                  subtitle: Text(
-                    kind.needsText
-                        ? 'Runs OCR on selected pages first, entirely offline.'
-                        : 'Preserves the page images. No OCR needed.',
+                  subtitle: Text(kind.guidance),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 24,
+                    vertical: 8,
                   ),
                   trailing: const Icon(Icons.chevron_right),
                   onTap: () => Navigator.pop(context, kind),
@@ -454,6 +463,398 @@ class _ReviewScreenState extends State<ReviewScreen> {
     if (mounted) setState(() {});
   }
 
+  void layout(bool value) {
+    setState(() => grid = value);
+    unawaited(widget.settings.setBool('reviewGrid', value));
+  }
+
+  void movePage(int index, int delta) {
+    doc.pages.insert(index + delta, doc.pages.removeAt(index));
+    save();
+  }
+
+  Future<void> openPage(ScanPage page) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => PageEditor(
+          page: page,
+          store: widget.store,
+          doc: doc,
+          language: widget.settings.getString('language') ?? 'ne',
+          autoRotate: widget.settings.getBool('rotate') ?? true,
+          checkDigits: widget.settings.getBool('digits') ?? true,
+        ),
+      ),
+    );
+    if (mounted) setState(() {});
+  }
+
+  String pageStatus(ScanPage page) {
+    if (!page.included) return 'Excluded from export';
+    if (!page.recognized) return 'Ready to recognize';
+    final count = page.lines.where(needsReview).length;
+    if (page.lines.isEmpty) return 'No text detected';
+    return count == 0 ? 'Text ready' : '${countLabel(count, 'line')} to review';
+  }
+
+  Widget pageImage(ScanPage page) => ColoredBox(
+    color: const Color(0xfffcfaf4),
+    child: Image.file(
+      File(page.path),
+      fit: BoxFit.contain,
+      cacheWidth: grid ? 360 : 240,
+      width: double.infinity,
+      height: double.infinity,
+      errorBuilder: (_, _, _) => const Center(
+        child: Icon(Icons.broken_image_outlined, color: Color(0xff120e08)),
+      ),
+    ),
+  );
+
+  Widget pageCard(int index, {required bool compact}) {
+    final page = doc.pages[index];
+    final scheme = Theme.of(context).colorScheme;
+    final caption = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Page ${index + 1}',
+          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+        ),
+        Text(
+          pageStatus(page),
+          style: TextStyle(color: scheme.onSurfaceVariant),
+        ),
+      ],
+    );
+    final preview = Semantics(
+      button: true,
+      label: 'Edit page ${index + 1}',
+      child: InkWell(
+        key: ValueKey('preview-${page.id}'),
+        onTap: () => openPage(page),
+        child: compact
+            ? Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.all(8),
+                      child: pageImage(page),
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    child: caption,
+                  ),
+                ],
+              )
+            : Padding(
+                padding: const EdgeInsets.all(16),
+                child: Row(
+                  children: [
+                    SizedBox(width: 104, height: 144, child: pageImage(page)),
+                    const SizedBox(width: 16),
+                    Expanded(child: caption),
+                  ],
+                ),
+              ),
+      ),
+    );
+    return Card(
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(
+          color: page.included ? scheme.primary : scheme.outlineVariant,
+          width: page.included ? 2 : 1,
+        ),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        children: [
+          if (compact) Expanded(child: preview) else preview,
+          Row(
+            mainAxisAlignment: compact
+                ? MainAxisAlignment.spaceEvenly
+                : MainAxisAlignment.end,
+            children: [
+              Semantics(
+                label: 'Include page ${index + 1}',
+                child: SizedBox(
+                  width: 48,
+                  height: 48,
+                  child: Checkbox(
+                    value: page.included,
+                    onChanged: (v) {
+                      page.included = v!;
+                      save();
+                    },
+                  ),
+                ),
+              ),
+              IconButton(
+                tooltip: 'Move page ${index + 1} up',
+                onPressed: index == 0 ? null : () => movePage(index, -1),
+                icon: const Icon(Icons.arrow_upward),
+              ),
+              IconButton(
+                tooltip: 'Move page ${index + 1} down',
+                onPressed: index == doc.pages.length - 1
+                    ? null
+                    : () => movePage(index, 1),
+                icon: const Icon(Icons.arrow_downward),
+              ),
+              if (!compact)
+                ReorderableDragStartListener(
+                  index: index,
+                  child: const SizedBox(
+                    width: 48,
+                    height: 48,
+                    child: Icon(Icons.drag_handle),
+                  ),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget captureNotes() {
+    final notes = <String, List<int>>{};
+    for (var i = 0; i < doc.pages.length; i++) {
+      if (doc.pages[i].note.isNotEmpty) {
+        (notes[doc.pages[i].note] ??= []).add(i + 1);
+      }
+    }
+    if (doc.warnings.isEmpty && notes.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: TextButton.icon(
+        icon: const Icon(Icons.info_outline),
+        label: const Text('Capture details'),
+        onPressed: () => showModalBottomSheet<void>(
+          context: context,
+          isScrollControlled: true,
+          builder: (_) => SafeArea(
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  ListTile(
+                    title: const Text('Capture details'),
+                    trailing: IconButton(
+                      tooltip: 'Close capture details',
+                      icon: const Icon(Icons.close),
+                      onPressed: () => Navigator.pop(context),
+                    ),
+                  ),
+                  ...doc.warnings.toSet().map((w) => ListTile(title: Text(w))),
+                  ...notes.entries.map(
+                    (entry) => ListTile(
+                      title: Text(entry.key),
+                      subtitle: Text(
+                        '${entry.value.length == 1 ? 'Page' : 'Pages'} ${entry.value.join(', ')}',
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget reviewHeader() => Column(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                '${doc.selected.length} selected / ${countLabel(doc.pages.length, 'page')}',
+              ),
+            ),
+            IconButton(
+              tooltip: 'Grid view',
+              isSelected: grid,
+              onPressed: () => layout(true),
+              icon: const Icon(Icons.grid_view_outlined),
+              selectedIcon: const Icon(Icons.grid_view),
+            ),
+            IconButton(
+              tooltip: 'List view',
+              isSelected: !grid,
+              onPressed: () => layout(false),
+              icon: const Icon(Icons.view_list_outlined),
+              selectedIcon: const Icon(Icons.view_list),
+            ),
+            PopupMenuButton<String>(
+              tooltip: 'Document actions',
+              onSelected: (value) {
+                if (value == 'ocr') {
+                  work('Recognizing text', recognize);
+                } else if (value == 'exports') {
+                  showExports();
+                } else if (value == 'select') {
+                  for (final p in doc.pages) {
+                    p.included = true;
+                  }
+                  save();
+                }
+              },
+              itemBuilder: (_) => const [
+                PopupMenuItem(
+                  value: 'ocr',
+                  child: Text('Recognize selected pages'),
+                ),
+                PopupMenuItem(value: 'select', child: Text('Select all pages')),
+                PopupMenuItem(value: 'exports', child: Text('Saved exports')),
+              ],
+            ),
+          ],
+        ),
+      ),
+      if (doc.selected.any((p) => !p.recognized))
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+          child: SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              onPressed: () => work('Recognizing text', recognize),
+              icon: const Icon(Icons.text_snippet_outlined),
+              label: Text(
+                'Recognize ${countLabel(doc.selected.where((p) => !p.recognized).length, 'unread page')}',
+              ),
+            ),
+          ),
+        ),
+      ...doc.warnings.toSet().map(
+        (warning) => Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(
+                Icons.warning_amber,
+                color: Theme.of(context).colorScheme.error,
+              ),
+              const SizedBox(width: 8),
+              Expanded(child: Text(warning)),
+            ],
+          ),
+        ),
+      ),
+      captureNotes(),
+      const Padding(
+        padding: EdgeInsets.fromLTRB(16, 0, 16, 8),
+        child: Text(
+          'Tap a preview to edit. Uncheck duplicates. Use arrows to reorder.',
+        ),
+      ),
+    ],
+  );
+  Widget reviewFooter() => Padding(
+    padding: const EdgeInsets.all(16),
+    child: Column(
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: capture,
+                icon: const Icon(Icons.camera_alt_outlined),
+                label: const Text('Add photos'),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: importMenu,
+                icon: const Icon(Icons.add),
+                label: const Text('Import'),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        SizedBox(
+          width: double.infinity,
+          child: FilledButton.icon(
+            onPressed: doc.selected.isEmpty ? null : export,
+            icon: const Icon(Icons.ios_share),
+            label: const Text('Export selected pages'),
+          ),
+        ),
+      ],
+    ),
+  );
+
+  Widget pageList({required bool scrollFooter}) {
+    if (!grid && doc.pages.isNotEmpty) {
+      return ReorderableListView.builder(
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        header: reviewHeader(),
+        footer: scrollFooter ? reviewFooter() : null,
+        buildDefaultDragHandles: false,
+        itemCount: doc.pages.length,
+        onReorderItem: (oldIndex, newIndex) {
+          doc.pages.insert(newIndex, doc.pages.removeAt(oldIndex));
+          save();
+        },
+        itemBuilder: (_, index) => Padding(
+          key: ValueKey(doc.pages[index].id),
+          padding: const EdgeInsets.only(bottom: 16),
+          child: pageCard(index, compact: false),
+        ),
+      );
+    }
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final scale = MediaQuery.textScalerOf(context).scale(16) / 16;
+        final columns = scale > 1.3
+            ? 1
+            : ((constraints.maxWidth - 32) / 160).floor().clamp(1, 3);
+        return CustomScrollView(
+          slivers: [
+            SliverToBoxAdapter(child: reviewHeader()),
+            if (doc.pages.isEmpty)
+              const SliverToBoxAdapter(
+                child: Padding(
+                  padding: EdgeInsets.all(32),
+                  child: Text(
+                    'Add your pages first.\nReview, reorder, then export.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 22),
+                  ),
+                ),
+              )
+            else
+              SliverPadding(
+                padding: const EdgeInsets.all(16),
+                sliver: SliverGrid.builder(
+                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: columns,
+                    crossAxisSpacing: 16,
+                    mainAxisSpacing: 16,
+                    mainAxisExtent: 248 + 40 * scale,
+                  ),
+                  itemCount: doc.pages.length,
+                  itemBuilder: (_, index) => pageCard(index, compact: true),
+                ),
+              ),
+            if (scrollFooter) SliverToBoxAdapter(child: reviewFooter()),
+          ],
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) => PopScope(
     canPop: !busy,
@@ -471,7 +872,7 @@ class _ReviewScreenState extends State<ReviewScreen> {
       body: SafeArea(
         child: busy
             ? Center(
-                child: Padding(
+                child: SingleChildScrollView(
                   padding: const EdgeInsets.all(32),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
@@ -503,286 +904,18 @@ class _ReviewScreenState extends State<ReviewScreen> {
                   ),
                 ),
               )
-            : Column(
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 20,
-                      vertical: 8,
-                    ),
-                    child: Row(
-                      children: [
-                        Text(
-                          '${doc.selected.length} selected / ${doc.pages.length} pages',
-                        ),
-                        const Spacer(),
-                        PopupMenuButton<String>(
-                          tooltip: 'Document actions',
-                          onSelected: (value) {
-                            if (value == 'ocr') {
-                              work('Recognizing text', recognize);
-                            } else if (value == 'exports') {
-                              showExports();
-                            } else if (value == 'select') {
-                              for (final p in doc.pages) {
-                                p.included = true;
-                              }
-                              save();
-                            }
-                          },
-                          itemBuilder: (_) => const [
-                            PopupMenuItem(
-                              value: 'ocr',
-                              child: Text('Recognize selected pages'),
-                            ),
-                            PopupMenuItem(
-                              value: 'select',
-                              child: Text('Select all pages'),
-                            ),
-                            PopupMenuItem(
-                              value: 'exports',
-                              child: Text('Saved exports'),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                  if (doc.selected.any((p) => !p.recognized))
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
-                      child: SizedBox(
-                        width: double.infinity,
-                        child: FilledButton.icon(
-                          onPressed: () => work('Recognizing text', recognize),
-                          icon: const Icon(Icons.text_snippet_outlined),
-                          label: Text(
-                            'Recognize ${doc.selected.where((p) => !p.recognized).length} unread pages',
-                          ),
-                        ),
-                      ),
-                    ),
-                  if (doc.warnings.isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 20),
-                      child: ExpansionTile(
-                        title: const Text('Capture notes · review required'),
-                        children: doc.warnings
-                            .toSet()
-                            .map(
-                              (w) => Padding(
-                                padding: const EdgeInsets.all(8),
-                                child: Text(w),
-                              ),
-                            )
-                            .toList(),
-                      ),
-                    ),
-                  Expanded(
-                    child: doc.pages.isEmpty
-                        ? const Center(
-                            child: Padding(
-                              padding: EdgeInsets.all(32),
-                              child: Text(
-                                'Add your pages first.\nReview, reorder, then export.',
-                                textAlign: TextAlign.center,
-                                style: TextStyle(fontSize: 22),
-                              ),
-                            ),
-                          )
-                        : ReorderableListView.builder(
-                            padding: const EdgeInsets.symmetric(horizontal: 20),
-                            itemCount: doc.pages.length,
-                            onReorderItem: (oldIndex, newIndex) {
-                              doc.pages.insert(
-                                newIndex,
-                                doc.pages.removeAt(oldIndex),
-                              );
-                              save();
-                            },
-                            itemBuilder: (context, index) {
-                              final page = doc.pages[index];
-                              return Padding(
-                                key: ValueKey(page.id),
-                                padding: const EdgeInsets.only(bottom: 12),
-                                child: Card(
-                                  child: Column(
-                                    children: [
-                                      ListTile(
-                                        contentPadding:
-                                            const EdgeInsets.symmetric(
-                                              horizontal: 8,
-                                              vertical: 12,
-                                            ),
-                                        leading: Checkbox(
-                                          value: page.included,
-                                          onChanged: (v) {
-                                            page.included = v!;
-                                            save();
-                                          },
-                                        ),
-                                        title: Row(
-                                          children: [
-                                            Image.file(
-                                              File(page.path),
-                                              height: 100,
-                                              width: 70,
-                                              cacheWidth: 180,
-                                              fit: BoxFit.cover,
-                                              errorBuilder: (_, _, _) =>
-                                                  const Icon(
-                                                    Icons.broken_image_outlined,
-                                                  ),
-                                            ),
-                                            const SizedBox(width: 16),
-                                            Expanded(
-                                              child: Column(
-                                                crossAxisAlignment:
-                                                    CrossAxisAlignment.start,
-                                                children: [
-                                                  Text(
-                                                    'Page ${index + 1}',
-                                                    style: const TextStyle(
-                                                      fontSize: 20,
-                                                      fontWeight:
-                                                          FontWeight.w600,
-                                                    ),
-                                                  ),
-                                                  Text(
-                                                    page.recognized
-                                                        ? '${page.lines.where(needsReview).length} lines to review'
-                                                        : 'Ready to recognize',
-                                                  ),
-                                                  if (page.note.isNotEmpty)
-                                                    Text(
-                                                      page.note,
-                                                      maxLines: 2,
-                                                      overflow:
-                                                          TextOverflow.ellipsis,
-                                                    ),
-                                                ],
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                        trailing: const Icon(
-                                          Icons.chevron_right,
-                                        ),
-                                        onTap: () async {
-                                          await Navigator.of(context).push(
-                                            MaterialPageRoute<void>(
-                                              builder: (_) => PageEditor(
-                                                page: page,
-                                                store: widget.store,
-                                                doc: doc,
-                                                language:
-                                                    widget.settings.getString(
-                                                      'language',
-                                                    ) ??
-                                                    'ne',
-                                                autoRotate:
-                                                    widget.settings.getBool(
-                                                      'rotate',
-                                                    ) ??
-                                                    true,
-                                                checkDigits:
-                                                    widget.settings.getBool(
-                                                      'digits',
-                                                    ) ??
-                                                    true,
-                                              ),
-                                            ),
-                                          );
-                                          setState(() {});
-                                        },
-                                      ),
-                                      Row(
-                                        mainAxisAlignment:
-                                            MainAxisAlignment.end,
-                                        children: [
-                                          IconButton(
-                                            tooltip: 'Move page up',
-                                            onPressed: index == 0
-                                                ? null
-                                                : () {
-                                                    doc.pages.insert(
-                                                      index - 1,
-                                                      doc.pages.removeAt(index),
-                                                    );
-                                                    save();
-                                                  },
-                                            icon: const Icon(
-                                              Icons.arrow_upward,
-                                            ),
-                                          ),
-                                          IconButton(
-                                            tooltip: 'Move page down',
-                                            onPressed:
-                                                index == doc.pages.length - 1
-                                                ? null
-                                                : () {
-                                                    doc.pages.insert(
-                                                      index + 1,
-                                                      doc.pages.removeAt(index),
-                                                    );
-                                                    save();
-                                                  },
-                                            icon: const Icon(
-                                              Icons.arrow_downward,
-                                            ),
-                                          ),
-                                          ReorderableDragStartListener(
-                                            index: index,
-                                            child: const Padding(
-                                              padding: EdgeInsets.all(14),
-                                              child: Icon(Icons.drag_handle),
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              );
-                            },
-                          ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      children: [
-                        Row(
-                          children: [
-                            Expanded(
-                              child: OutlinedButton.icon(
-                                onPressed: capture,
-                                icon: const Icon(Icons.camera_alt_outlined),
-                                label: const Text('Add photos'),
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: OutlinedButton.icon(
-                                onPressed: importMenu,
-                                icon: const Icon(Icons.add),
-                                label: const Text('Import'),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 12),
-                        SizedBox(
-                          width: double.infinity,
-                          child: FilledButton.icon(
-                            onPressed: doc.selected.isEmpty ? null : export,
-                            icon: const Icon(Icons.ios_share),
-                            label: const Text('Export selected pages'),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
+            : LayoutBuilder(
+                builder: (context, constraints) {
+                  final scale = MediaQuery.textScalerOf(context).scale(16) / 16;
+                  final scrollFooter =
+                      scale > 1.6 || constraints.maxHeight < 450;
+                  return Column(
+                    children: [
+                      Expanded(child: pageList(scrollFooter: scrollFooter)),
+                      if (!scrollFooter) reviewFooter(),
+                    ],
+                  );
+                },
               ),
       ),
     ),

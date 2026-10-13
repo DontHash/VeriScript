@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'documents.dart';
 import 'review.dart';
+import 'copy.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -21,14 +22,43 @@ ThemeData studioTheme(Brightness brightness) {
   final surface = Color(dark ? 0xff1d2530 : 0xfffcfaf4);
   final ink = Color(dark ? 0xfff4f1e8 : 0xff120e08);
   final amber = Color(dark ? 0xfff2b544 : 0xffe8a200);
-  final scheme = ColorScheme.fromSeed(seedColor: amber, brightness: brightness)
-      .copyWith(
-        surface: surface,
-        primary: amber,
-        onPrimary: const Color(0xff120e08),
-        onSurface: ink,
-        surfaceContainerHighest: Color(dark ? 0xff283341 : 0xffe5dfd1),
-      );
+  final generated = ColorScheme.fromSeed(
+    seedColor: amber,
+    brightness: brightness,
+  );
+  final scheme = generated.copyWith(
+    surface: surface,
+    primary: amber,
+    onPrimary: Color(dark ? 0xff11151b : 0xff120e08),
+    onSurface: ink,
+    surfaceContainerHighest: Color(dark ? 0xff283341 : 0xffe5dfd1),
+    onSurfaceVariant: dark
+        ? const Color(0xffa6b2c3)
+        : generated.onSurfaceVariant,
+    surfaceDim: dark ? background : generated.surfaceDim,
+    surfaceBright: dark ? const Color(0xff303c4b) : generated.surfaceBright,
+    surfaceContainerLowest: dark
+        ? background
+        : generated.surfaceContainerLowest,
+    surfaceContainerLow: dark
+        ? const Color(0xff18202a)
+        : generated.surfaceContainerLow,
+    surfaceContainer: dark ? surface : generated.surfaceContainer,
+    surfaceContainerHigh: dark
+        ? const Color(0xff242e3b)
+        : generated.surfaceContainerHigh,
+    outline: dark ? const Color(0xff78879a) : generated.outline,
+    outlineVariant: dark ? const Color(0xff3e4c5e) : generated.outlineVariant,
+    primaryContainer: dark
+        ? const Color(0xff3f321a)
+        : generated.primaryContainer,
+    onPrimaryContainer: dark ? amber : generated.onPrimaryContainer,
+    secondary: dark ? const Color(0xffa6b2c3) : generated.secondary,
+    secondaryContainer: dark
+        ? const Color(0xff283341)
+        : generated.secondaryContainer,
+    onSecondaryContainer: dark ? ink : generated.onSecondaryContainer,
+  );
   final shape = RoundedRectangleBorder(borderRadius: BorderRadius.circular(12));
   return ThemeData(
     useMaterial3: true,
@@ -68,6 +98,28 @@ ThemeData studioTheme(Brightness brightness) {
       fillColor: surface,
       border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
     ),
+    navigationBarTheme: dark
+        ? NavigationBarThemeData(
+            backgroundColor: surface,
+            indicatorColor: scheme.surfaceContainerHighest,
+            iconTheme: WidgetStateProperty.resolveWith(
+              (states) => IconThemeData(
+                color: states.contains(WidgetState.selected)
+                    ? amber
+                    : scheme.onSurfaceVariant,
+              ),
+            ),
+            labelTextStyle: WidgetStateProperty.resolveWith(
+              (states) => TextStyle(
+                fontFamily: 'Mukta',
+                fontSize: 14,
+                color: states.contains(WidgetState.selected)
+                    ? amber
+                    : scheme.onSurfaceVariant,
+              ),
+            ),
+          )
+        : const NavigationBarThemeData(),
   );
 }
 
@@ -250,7 +302,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
       builder: (_) => AlertDialog(
         title: Text('Delete “${doc.title}”?'),
         content: Text(
-          'Permanently remove ${doc.pages.length} pages, their saved text, original copies, and exports stored inside this app. '
+          'Permanently remove ${countLabel(doc.pages.length, 'page')}, their saved text, original copies, and exports stored inside this app. '
           'Files you imported from or shared to other apps will stay. This cannot be undone.',
         ),
         actions: [
@@ -280,41 +332,58 @@ class _LibraryScreenState extends State<LibraryScreen> {
     }
   }
 
-  Widget action(IconData icon, String title, String subtitle, String kind) =>
-      Padding(
-        padding: const EdgeInsets.only(bottom: 12),
-        child: Card(
-          child: InkWell(
-            borderRadius: BorderRadius.circular(12),
-            onTap: () => create(kind),
-            child: Padding(
-              padding: const EdgeInsets.all(20),
-              child: Row(
-                children: [
-                  Icon(icon, size: 30),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          title,
-                          style: const TextStyle(
-                            fontSize: 21,
-                            fontWeight: FontWeight.w600,
-                          ),
+  Widget action(IconData icon, String title, String subtitle, String kind) {
+    final scheme = Theme.of(context).colorScheme;
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final primary = dark && kind == 'camera';
+    final foreground = primary ? scheme.onPrimary : scheme.onSurface;
+    return Padding(
+      padding: EdgeInsets.only(bottom: dark ? 16 : 12),
+      child: Card(
+        color: primary ? scheme.primary : null,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: () => create(kind),
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Row(
+              children: [
+                Icon(icon, size: 30, color: foreground),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        style: TextStyle(
+                          fontSize: 21,
+                          fontWeight: FontWeight.w600,
+                          color: foreground,
                         ),
-                        Text(subtitle),
-                      ],
-                    ),
+                      ),
+                      Text(
+                        subtitle,
+                        style: dark
+                            ? TextStyle(
+                                color: primary
+                                    ? scheme.onPrimary
+                                    : scheme.onSurfaceVariant,
+                              )
+                            : null,
+                      ),
+                    ],
                   ),
-                  const Icon(Icons.arrow_forward),
-                ],
-              ),
+                ),
+                Icon(Icons.arrow_forward, color: foreground),
+              ],
             ),
           ),
         ),
-      );
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(
@@ -477,7 +546,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                                   ),
                             title: Text(doc.title),
                             subtitle: Text(
-                              '${doc.pages.length} pages · ${doc.exports.length} exports${doc.folder.isEmpty ? '' : '\n${doc.folder}'}',
+                              '${countLabel(doc.pages.length, 'page')} · ${countLabel(doc.exports.length, 'export')}${doc.folder.isEmpty ? '' : '\n${doc.folder}'}',
                             ),
                             trailing: PopupMenuButton<String>(
                               tooltip: 'Manage ${doc.title}',

@@ -48,4 +48,6 @@ Integration coverage: real enhancement, English/Devanagari OCR, digit evidence, 
 
 See [P1 implementation and checks](docs/P1.md) for the workflow changes following the customer audit and the remaining physical-device acceptance work.
 
+See [P2 appearance and review checks](docs/P2.md) for dark-mode hierarchy, larger grid/list previews and export guidance.
+
 The runner generates a synthetic book fixture if needed, checks disconnected Android networking, and transfers the fixture over ADB after Flutter reinstalls the test app. The fixture is not included in production APKs.

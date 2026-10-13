@@ -31,7 +31,12 @@ void main() {
         tester.view.devicePixelRatio = 1;
         addTearDown(tester.view.resetPhysicalSize);
         addTearDown(tester.view.resetDevicePixelRatio);
-        final book = ScanDocument(id: 'book', title: 'Lecture', pages: []);
+        final book = ScanDocument(
+          id: 'book',
+          title: 'Lecture',
+          pages: [],
+          exports: ['saved.pdf'],
+        );
         final store = LibraryStore([
           book,
           ScanDocument(id: 'invoice', title: 'Invoice', pages: []),
@@ -61,6 +66,7 @@ void main() {
         await tester.enterText(find.byType(TextField), 'नेपाल');
         await tester.pumpAndSettle();
         expect(find.text('Lecture'), findsOneWidget);
+        expect(find.text('1 page · 1 export'), findsOneWidget);
         expect(find.text('Invoice'), findsNothing);
         await tester.tap(find.text('Home'));
         await tester.pumpAndSettle();

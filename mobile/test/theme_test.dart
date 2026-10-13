@@ -34,6 +34,13 @@ void main() {
           Theme.of(tester.element(find.byType(Scaffold))).brightness,
           dark ? Brightness.dark : Brightness.light,
         );
+        final scanCard = tester.widget<Card>(
+          find.ancestor(
+            of: find.text('Scan pages'),
+            matching: find.byType(Card),
+          ),
+        );
+        expect(scanCard.color, dark ? const Color(0xfff2b544) : null);
         await tester.tap(find.text('Settings'));
         await tester.pumpAndSettle();
         expect(tester.takeException(), isNull);
