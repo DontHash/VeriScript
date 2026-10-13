@@ -1,5 +1,7 @@
 # Android verification — 2026-10-13
 
+This records the initial mobile baseline before P1. See [P1 implementation and checks](P1.md) for the subsequent changes and current APK evidence.
+
 This is a development build, not a claim of desktop feature parity or physical-phone certification.
 
 ## Automated evidence

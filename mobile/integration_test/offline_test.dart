@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:convert';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -90,6 +91,39 @@ void main() {
       expect(b.width, 1800, reason: 'Small document pages are enlarged 2×');
       expect(b.height, 2400);
       expect(b.lines.where((l) => l['digitCheck'] != null), isNotEmpty);
+      // P1: real bundled OCR must preserve a customer's reviewed text on cancel,
+      // and a successful re-read must be recoverable with its image geometry.
+      a.lines.first['text'] = 'Reviewed heading';
+      a.lines.first['reviewed'] = true;
+      final reviewed = jsonEncode(a.toJson());
+      final interrupted = OfflineProcessor('en');
+      await expectLater(
+        interrupted.recognize(
+          a,
+          autoRotate: false,
+          onProgress: (stage) {
+            if (stage.startsWith('Checking digits')) {
+              interrupted.cancelled = true;
+            }
+          },
+        ),
+        throwsStateError,
+      );
+      expect(jsonEncode(a.toJson()), reviewed);
+      await OfflineProcessor(
+        'en',
+      ).recognize(a, autoRotate: false, checkDigits: false);
+      expect(a.previousVersion, isNotNull);
+      await store.save(doc);
+      final recovery = (await store.list()).single.pages.first;
+      recovery.restorePreviousVersion();
+      expect(recovery.lines.first['text'], 'Reviewed heading');
+      expect(recovery.lines.first['reviewed'], true);
+      a.restorePreviousVersion();
+      doc.folder = 'Study';
+      await store.save(doc);
+      expect((await store.list()).single.folder, 'Study');
+      expect(doc.matches('study reviewed'), true);
       final crop = await native.invokeMapMethod<String, dynamic>('crop', {
         'path': b.path,
         'out': '${root.path}/crop.jpg',
@@ -174,6 +208,13 @@ void main() {
         ).recognize(bookDoc.pages[1], autoRotate: false);
         expect(bookDoc.pages[0].text, contains('LEFT'));
         expect(bookDoc.pages[1].text, contains('RIGHT'));
+        await store.delete(bookDoc);
+        expect(await Directory(store.directory(bookDoc)).exists(), false);
+        expect(
+          await book.exists(),
+          true,
+          reason: 'Deleting a document must retain its imported source',
+        );
       }
       await File('${base.path}/offline-result.txt').writeAsString(
         'PASS\nEnglish: ${a.text}\nNepali: ${b.text}\nExports: ${doc.exports.join('\n')}',

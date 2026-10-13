@@ -16,6 +16,7 @@ class OfflineProcessor {
     ScanPage page, {
     bool autoRotate = true,
     bool checkDigits = true,
+    void Function(String stage)? onProgress,
   }) async {
     final reader = recognizer;
     final paths = <String>[];
@@ -25,6 +26,9 @@ class OfflineProcessor {
       String bestPath = page.path;
       for (final degrees in autoRotate ? [0, 90, 180, 270] : [0]) {
         if (cancelled) throw StateError('Operation cancelled');
+        onProgress?.call(
+          degrees == 0 ? 'Reading text' : 'Checking orientation · $degrees°',
+        );
         var path = page.path;
         if (degrees != 0) {
           path = '${page.path}.$degrees.jpg';
@@ -58,21 +62,25 @@ class OfflineProcessor {
         }
       }
       if (cancelled) throw StateError('Operation cancelled');
+      var resultPath = page.path;
+      var resultWidth = page.width, resultHeight = page.height;
       if (bestPath != page.path) {
-        final target = '${page.path}.upright.jpg';
+        final target =
+            '${page.path}.upright_${DateTime.now().microsecondsSinceEpoch}.jpg';
         await File(bestPath).copy(target);
-        page.path = target;
+        paths.add(target);
+        resultPath = target;
         final info = await native.invokeMapMethod<String, dynamic>(
           'dimensions',
           {'path': target},
         );
-        page.width = info!['width'];
-        page.height = info['height'];
+        resultWidth = info!['width'];
+        resultHeight = info['height'];
       }
-      page.lines = best!.blocks
+      final resultLines = best!.blocks
           .expand((b) => b.lines)
           .map(
-            (l) => {
+            (l) => <String, dynamic>{
               'text': l.text,
               'original': l.text,
               'confidence': l.confidence,
@@ -88,16 +96,17 @@ class OfflineProcessor {
           )
           .toList();
       var checked = 0;
-      for (final line in page.lines) {
+      for (final line in resultLines) {
         if (digitGroups(line['text']).isEmpty) continue;
         line['digitCheck'] = 'notChecked';
         if (!checkDigits || checked >= 80) continue;
         if (cancelled) throw StateError('Operation cancelled');
         checked++;
-        final crop = '${page.path}.digits_$checked.jpg';
+        onProgress?.call('Checking digits · line $checked');
+        final crop = '$resultPath.digits_$checked.jpg';
         paths.add(crop);
         await native.invokeMethod('digitCrop', {
-          'path': page.path,
+          'path': resultPath,
           'out': crop,
           'bbox': line['bbox'],
         });
@@ -109,7 +118,16 @@ class OfflineProcessor {
         );
         line['digitMethod'] = 'same-engine-enlarged-contrast-crop';
       }
+      if (cancelled) throw StateError('Operation cancelled');
+      // Commit a complete page only. A cancelled digit check must not overwrite
+      // reviewed text or leave a new image with stale geometry.
+      page.protectText();
+      page.path = resultPath;
+      page.width = resultWidth;
+      page.height = resultHeight;
+      page.lines = resultLines;
       page.recognized = true;
+      paths.remove(resultPath);
     } finally {
       await reader.close();
       for (final path in paths) {

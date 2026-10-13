@@ -9,10 +9,15 @@ class PageEditor extends StatefulWidget {
     required this.page,
     required this.store,
     required this.doc,
+    this.language = 'ne',
+    this.autoRotate = true,
+    this.checkDigits = true,
   });
   final ScanPage page;
   final DocumentStore store;
   final ScanDocument doc;
+  final String language;
+  final bool autoRotate, checkDigits;
   @override
   State<PageEditor> createState() => _PageEditorState();
 }
@@ -22,11 +27,146 @@ class _PageEditorState extends State<PageEditor> {
   bool busy = false;
   int revision = 0;
   bool showOriginal = false;
+  String status = '';
+  OfflineProcessor? processor;
+
+  Future<bool> confirmReplacement(String action) async {
+    if (!page.recognized) return true;
+    return await showDialog<bool>(
+          context: context,
+          builder: (_) => AlertDialog(
+            title: Text(action),
+            content: const Text(
+              'This replaces the current text, including your corrections. '
+              'One previous version of the image and text will be kept on this phone. '
+              'Use Restore previous text to recover it.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('Continue'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+  }
+
+  void message(String text) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
+    }
+  }
+
+  Future<void> recognize() async {
+    if (busy ||
+        !await confirmReplacement('Recognize this page again?') ||
+        !mounted) {
+      return;
+    }
+    final before = page.snapshot(), previous = page.previousVersion;
+    final worker = OfflineProcessor(widget.language);
+    processor = worker;
+    setState(() {
+      busy = true;
+      status = 'Reading text';
+    });
+    try {
+      await worker.recognize(
+        page,
+        autoRotate: widget.autoRotate,
+        checkDigits: widget.checkDigits,
+        onProgress: (stage) {
+          if (mounted) setState(() => status = stage);
+        },
+      );
+      await widget.store.save(widget.doc);
+      if (page.lines.isEmpty) {
+        message('No text detected. Try cropping the page or a sharper photo.');
+      }
+      showOriginal = false;
+      revision++;
+    } catch (e) {
+      page.applySnapshot(before);
+      page.previousVersion = previous;
+      message(
+        worker.cancelled
+            ? 'Stopped. Your previous image and text are unchanged.'
+            : '$e',
+      );
+    } finally {
+      processor = null;
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  Future<void> restoreText() async {
+    final version = page.previousVersion;
+    if (busy || version == null) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Restore previous text?'),
+        content: const Text(
+          'Restore the saved image and its text together. Current image edits and text will be replaced.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Restore'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    if (!await File(version['path']).exists()) {
+      message(
+        'The previous image is missing. Your current text has been kept.',
+      );
+      return;
+    }
+    if (!mounted) return;
+    final before = page.snapshot();
+    setState(() {
+      busy = true;
+      status = 'Restoring previous text';
+    });
+    try {
+      page.restorePreviousVersion();
+      await widget.store.save(widget.doc);
+      showOriginal = false;
+      revision++;
+    } catch (e) {
+      page.applySnapshot(before);
+      page.previousVersion = version;
+      message('$e');
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
   Future<void> transform(
     String method, {
     Map<String, dynamic> arguments = const {},
   }) async {
-    setState(() => busy = true);
+    if (busy ||
+        !await confirmReplacement('Change the page image?') ||
+        !mounted) {
+      return;
+    }
+    final before = page.snapshot(), previous = page.previousVersion;
+    setState(() {
+      busy = true;
+      status = 'Updating image';
+    });
     try {
       final out =
           '${widget.store.directory(widget.doc)}/edit_${page.id}_${DateTime.now().microsecondsSinceEpoch}.jpg';
@@ -35,6 +175,7 @@ class _PageEditorState extends State<PageEditor> {
         'out': out,
         ...arguments,
       });
+      page.protectText();
       page.path = result!['path'];
       page.width = result['width'];
       page.height = result['height'];
@@ -44,6 +185,8 @@ class _PageEditorState extends State<PageEditor> {
       await widget.store.save(widget.doc);
       revision++;
     } catch (e) {
+      page.applySnapshot(before);
+      page.previousVersion = previous;
       if (mounted) {
         ScaffoldMessenger.of(
           context,
@@ -115,10 +258,17 @@ class _PageEditorState extends State<PageEditor> {
         ],
       ),
     );
-    if (result != null) {
+    if (result != null && mounted) {
+      final oldText = line['text'], oldReviewed = line['reviewed'];
       line['text'] = result;
       line['reviewed'] = true;
-      await widget.store.save(widget.doc);
+      try {
+        await widget.store.save(widget.doc);
+      } catch (e) {
+        line['text'] = oldText;
+        line['reviewed'] = oldReviewed;
+        message('Could not save this correction: $e');
+      }
       if (mounted) setState(() {});
     }
   }
@@ -138,117 +288,182 @@ class _PageEditorState extends State<PageEditor> {
             ],
           ),
         ),
-        body: busy
-            ? const Center(child: CircularProgressIndicator())
-            : TabBarView(
-                children: [
-                  Column(
-                    children: [
-                      Expanded(
-                        child: InteractiveViewer(
-                          minScale: .5,
-                          maxScale: 5,
-                          child: Center(
-                            child: Image.file(
-                              File(showOriginal ? page.source : page.path),
-                              key: ValueKey('${page.path}$revision'),
-                              fit: BoxFit.contain,
-                            ),
+        body: SafeArea(
+          child: busy
+              ? Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const CircularProgressIndicator(),
+                        const SizedBox(height: 24),
+                        Text(status, textAlign: TextAlign.center),
+                        if (processor != null) ...[
+                          const SizedBox(height: 16),
+                          OutlinedButton(
+                            onPressed: processor!.cancelled
+                                ? null
+                                : () {
+                                    setState(() {
+                                      processor!.cancelled = true;
+                                      status =
+                                          'Stopping after the current step…';
+                                    });
+                                  },
+                            child: const Text('Cancel'),
                           ),
-                        ),
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Wrap(
-                          spacing: 12,
-                          runSpacing: 8,
-                          alignment: WrapAlignment.center,
-                          children: [
-                            TextButton.icon(
-                              onPressed: () =>
-                                  setState(() => showOriginal = !showOriginal),
-                              icon: const Icon(Icons.compare_outlined),
-                              label: Text(
-                                showOriginal
-                                    ? 'Show processed'
-                                    : 'Compare original',
-                              ),
-                            ),
-                            OutlinedButton.icon(
-                              onPressed: () => transform(
-                                'rotate',
-                                arguments: {'degrees': 90},
-                              ),
-                              icon: const Icon(Icons.rotate_right),
-                              label: const Text('Rotate'),
-                            ),
-                            OutlinedButton.icon(
-                              onPressed: crop,
-                              icon: const Icon(Icons.crop),
-                              label: const Text('Crop corners'),
-                            ),
-                            TextButton(
-                              onPressed: () => transform('enhance'),
-                              child: const Text('Enhance & upscale'),
-                            ),
-                            TextButton(
-                              onPressed: () => transform('restore'),
-                              child: const Text('Auto-align original'),
-                            ),
-                            TextButton(
-                              onPressed: () => transform(
-                                'normalize',
-                                arguments: {'path': page.source},
-                              ),
-                              child: const Text('Reset original'),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const Padding(
-                        padding: EdgeInsets.only(bottom: 12),
-                        child: Text(
-                          'Changing the image clears OCR. Recognize it again.',
-                        ),
-                      ),
-                    ],
+                        ],
+                      ],
+                    ),
                   ),
-                  !page.recognized
-                      ? const Center(
-                          child: Padding(
-                            padding: EdgeInsets.all(24),
-                            child: Text(
-                              'Choose “Recognize selected pages” in document actions to read text offline.',
-                              textAlign: TextAlign.center,
+                )
+              : Column(
+                  children: [
+                    Expanded(
+                      child: TabBarView(
+                        children: [
+                          Column(
+                            children: [
+                              Expanded(
+                                child: InteractiveViewer(
+                                  minScale: .5,
+                                  maxScale: 5,
+                                  child: Center(
+                                    child: Image.file(
+                                      File(
+                                        showOriginal ? page.source : page.path,
+                                      ),
+                                      key: ValueKey('${page.path}$revision'),
+                                      fit: BoxFit.contain,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              Padding(
+                                padding: const EdgeInsets.all(16),
+                                child: Wrap(
+                                  spacing: 12,
+                                  runSpacing: 8,
+                                  alignment: WrapAlignment.center,
+                                  children: [
+                                    TextButton.icon(
+                                      onPressed: () => setState(
+                                        () => showOriginal = !showOriginal,
+                                      ),
+                                      icon: const Icon(Icons.compare_outlined),
+                                      label: Text(
+                                        showOriginal
+                                            ? 'Show processed'
+                                            : 'Compare original',
+                                      ),
+                                    ),
+                                    OutlinedButton.icon(
+                                      onPressed: () => transform(
+                                        'rotate',
+                                        arguments: {'degrees': 90},
+                                      ),
+                                      icon: const Icon(Icons.rotate_right),
+                                      label: const Text('Rotate'),
+                                    ),
+                                    OutlinedButton.icon(
+                                      onPressed: crop,
+                                      icon: const Icon(Icons.crop),
+                                      label: const Text('Crop corners'),
+                                    ),
+                                    TextButton(
+                                      onPressed: () => transform('enhance'),
+                                      child: const Text('Enhance & upscale'),
+                                    ),
+                                    TextButton(
+                                      onPressed: () => transform('restore'),
+                                      child: const Text('Auto-align original'),
+                                    ),
+                                    TextButton(
+                                      onPressed: () => transform(
+                                        'normalize',
+                                        arguments: {'path': page.source},
+                                      ),
+                                      child: const Text('Reset original'),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const Padding(
+                                padding: EdgeInsets.only(bottom: 12),
+                                child: Text(
+                                  'Review the image, then recognize its text.',
+                                ),
+                              ),
+                            ],
+                          ),
+                          !page.recognized
+                              ? const Center(
+                                  child: Padding(
+                                    padding: EdgeInsets.all(24),
+                                    child: Text(
+                                      'Tap Recognize text below to read this page offline. Then tap a line to review or correct it.',
+                                      textAlign: TextAlign.center,
+                                    ),
+                                  ),
+                                )
+                              : page.lines.isEmpty
+                              ? const Center(
+                                  child: Text(
+                                    'No text detected. Try a sharper photo.',
+                                  ),
+                                )
+                              : ListView.builder(
+                                  padding: const EdgeInsets.all(16),
+                                  itemCount: page.lines.length,
+                                  itemBuilder: (_, index) {
+                                    final line = page.lines[index];
+                                    return Card(
+                                      child: ListTile(
+                                        title: Text(line['text']),
+                                        subtitle: Text(reviewLabel(line)),
+                                        leading: Icon(
+                                          needsReview(line)
+                                              ? Icons.help_outline
+                                              : Icons.check_circle_outline,
+                                        ),
+                                        trailing: const Icon(
+                                          Icons.edit_outlined,
+                                        ),
+                                        onTap: () => editLine(line),
+                                      ),
+                                    );
+                                  },
+                                ),
+                        ],
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          if (page.previousVersion != null)
+                            TextButton.icon(
+                              onPressed: restoreText,
+                              icon: const Icon(Icons.restore),
+                              label: const Text('Restore previous text'),
+                            ),
+                          FilledButton.icon(
+                            onPressed: recognize,
+                            icon: const Icon(Icons.text_snippet_outlined),
+                            label: Text(
+                              page.recognized
+                                  ? 'Recognize again'
+                                  : 'Recognize text',
                             ),
                           ),
-                        )
-                      : page.lines.isEmpty
-                      ? const Center(
-                          child: Text('No text detected. Try a sharper photo.'),
-                        )
-                      : ListView.builder(
-                          padding: const EdgeInsets.all(16),
-                          itemCount: page.lines.length,
-                          itemBuilder: (_, index) {
-                            final line = page.lines[index];
-                            return Card(
-                              child: ListTile(
-                                title: Text(line['text']),
-                                subtitle: Text(reviewLabel(line)),
-                                leading: Icon(
-                                  needsReview(line)
-                                      ? Icons.help_outline
-                                      : Icons.check_circle_outline,
-                                ),
-                                trailing: const Icon(Icons.edit_outlined),
-                                onTap: () => editLine(line),
-                              ),
-                            );
-                          },
-                        ),
-                ],
-              ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+        ),
       ),
     ),
   );

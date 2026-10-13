@@ -113,6 +113,23 @@ class _LibraryScreenState extends State<LibraryScreen> {
   List<ScanDocument> documents = [];
   int tab = 0;
   String? error;
+  String query = '';
+  String? folder;
+  bool managing = false;
+  final searchController = TextEditingController();
+  @override
+  void dispose() {
+    searchController.dispose();
+    super.dispose();
+  }
+
+  List<ScanDocument> get visibleDocuments => documents
+      .where(
+        (doc) =>
+            (tab == 0 ||
+            (doc.matches(query) && (folder == null || doc.folder == folder))),
+      )
+      .toList();
   @override
   void initState() {
     super.initState();
@@ -122,7 +139,12 @@ class _LibraryScreenState extends State<LibraryScreen> {
   Future<void> reload() async {
     try {
       final docs = await widget.store.list();
-      if (mounted) setState(() => documents = docs);
+      if (mounted) {
+        setState(() {
+          documents = docs;
+          error = null;
+        });
+      }
     } catch (e) {
       if (mounted) setState(() => error = '$e');
     }
@@ -147,6 +169,115 @@ class _LibraryScreenState extends State<LibraryScreen> {
       action == 'video' ? 'Captured book' : 'New document',
     );
     if (mounted) await open(doc, initial: action);
+  }
+
+  void message(String value) {
+    if (mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(value)));
+    }
+  }
+
+  Future<void> organize(ScanDocument doc) async {
+    var draft = doc.folder;
+    final folders =
+        documents
+            .map((d) => d.folder)
+            .where((f) => f.isNotEmpty)
+            .toSet()
+            .toList()
+          ..sort();
+    final selected = await showDialog<String>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Move to folder'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              TextFormField(
+                initialValue: draft,
+                maxLength: 60,
+                onChanged: (v) => draft = v,
+                decoration: const InputDecoration(
+                  labelText: 'New or existing folder',
+                  helperText: 'Leave empty for Unfiled.',
+                ),
+              ),
+              if (folders.isNotEmpty) const Text('Or choose a folder:'),
+              ...folders.map(
+                (f) => TextButton(
+                  onPressed: () => Navigator.pop(context, f),
+                  child: Text(f),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, draft.trim()),
+            child: const Text('Move'),
+          ),
+        ],
+      ),
+    );
+    if (selected == null || !mounted) return;
+    setState(() => managing = true);
+    final previous = doc.folder;
+    try {
+      doc.folder = selected;
+      await widget.store.save(doc);
+      await reload();
+      message(selected.isEmpty ? 'Moved to Unfiled.' : 'Moved to $selected.');
+    } catch (e) {
+      doc.folder = previous;
+      message('Could not move document: $e');
+    } finally {
+      if (mounted) setState(() => managing = false);
+    }
+  }
+
+  Future<void> delete(ScanDocument doc) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: Text('Delete “${doc.title}”?'),
+        content: Text(
+          'Permanently remove ${doc.pages.length} pages, their saved text, original copies, and exports stored inside this app. '
+          'Files you imported from or shared to other apps will stay. This cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Delete document'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() => managing = true);
+    try {
+      await widget.store.delete(doc);
+      await reload();
+      message(
+        'Document deleted. Storage used by this document has been freed.',
+      );
+    } catch (e) {
+      message('Could not delete document: $e');
+    } finally {
+      if (mounted) setState(() => managing = false);
+    }
   }
 
   Widget action(IconData icon, String title, String subtitle, String kind) =>
@@ -248,31 +379,84 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 ],
                 Row(
                   children: [
-                    Text(
-                      tab == 0 ? 'Recent documents' : 'Your documents',
-                      style: const TextStyle(
-                        fontSize: 22,
-                        fontWeight: FontWeight.w600,
+                    Expanded(
+                      child: Text(
+                        tab == 0 ? 'Recent documents' : 'Your documents',
+                        style: const TextStyle(
+                          fontSize: 22,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                     ),
-                    const Spacer(),
                     if (tab == 1)
                       IconButton(
                         tooltip: 'New document',
-                        onPressed: () => create('import'),
+                        onPressed: managing ? null : () => create('import'),
                         icon: const Icon(Icons.add),
                       ),
                   ],
                 ),
                 const SizedBox(height: 12),
-                if (documents.isEmpty)
-                  const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 24),
-                    child: Text(
-                      'Your scanned pages and exports will appear here.',
+                if (tab == 1) ...[
+                  TextField(
+                    controller: searchController,
+                    onChanged: (value) => setState(() => query = value),
+                    decoration: const InputDecoration(
+                      labelText: 'Search documents',
+                      hintText: 'Name, folder, or recognized text',
+                      prefixIcon: Icon(Icons.search),
                     ),
                   ),
-                ...documents
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      FilterChip(
+                        label: const Text('All'),
+                        selected: folder == null,
+                        onSelected: (_) => setState(() => folder = null),
+                      ),
+                      FilterChip(
+                        label: const Text('Unfiled'),
+                        selected: folder == '',
+                        onSelected: (_) => setState(() => folder = ''),
+                      ),
+                      ...(documents
+                              .map((d) => d.folder)
+                              .where((f) => f.isNotEmpty)
+                              .toSet()
+                              .toList()
+                            ..sort())
+                          .map(
+                            (f) => FilterChip(
+                              label: Text(f),
+                              selected: folder == f,
+                              onSelected: (_) => setState(() => folder = f),
+                            ),
+                          ),
+                      if (folder != null &&
+                          folder!.isNotEmpty &&
+                          !documents.any((d) => d.folder == folder))
+                        FilterChip(
+                          label: Text(folder!),
+                          selected: true,
+                          onSelected: (_) => setState(() => folder = null),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                ],
+                if (visibleDocuments.isEmpty)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 24),
+                    child: Text(
+                      documents.isEmpty
+                          ? 'Your scanned pages and exports will appear here.'
+                          : 'No matching documents. Try another search or folder.',
+                    ),
+                  ),
+                ...visibleDocuments
                     .take(tab == 0 ? 5 : documents.length)
                     .map(
                       (doc) => Padding(
@@ -293,10 +477,30 @@ class _LibraryScreenState extends State<LibraryScreen> {
                                   ),
                             title: Text(doc.title),
                             subtitle: Text(
-                              '${doc.pages.length} pages · ${doc.exports.length} exports',
+                              '${doc.pages.length} pages · ${doc.exports.length} exports${doc.folder.isEmpty ? '' : '\n${doc.folder}'}',
                             ),
-                            trailing: const Icon(Icons.chevron_right),
-                            onTap: () => open(doc),
+                            trailing: PopupMenuButton<String>(
+                              tooltip: 'Manage ${doc.title}',
+                              enabled: !managing,
+                              onSelected: (value) {
+                                if (value == 'folder') {
+                                  organize(doc);
+                                } else {
+                                  delete(doc);
+                                }
+                              },
+                              itemBuilder: (_) => const [
+                                PopupMenuItem(
+                                  value: 'folder',
+                                  child: Text('Move to folder'),
+                                ),
+                                PopupMenuItem(
+                                  value: 'delete',
+                                  child: Text('Delete document'),
+                                ),
+                              ],
+                            ),
+                            onTap: managing ? null : () => open(doc),
                           ),
                         ),
                       ),

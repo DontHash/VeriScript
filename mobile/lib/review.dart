@@ -303,10 +303,18 @@ class _ReviewScreenState extends State<ReviewScreen> {
     for (var i = 0; i < pages.length; i++) {
       checkCancelled();
       setState(() => status = 'Recognizing page ${i + 1} of ${pages.length}');
+      setState(() => fraction = i / pages.length);
       await processor!.recognize(
         pages[i],
         autoRotate: widget.settings.getBool('rotate') ?? true,
         checkDigits: widget.settings.getBool('digits') ?? true,
+        onProgress: (stage) {
+          if (mounted) {
+            setState(
+              () => status = 'Page ${i + 1} of ${pages.length} · $stage',
+            );
+          }
+        },
       );
       await widget.store.save(doc);
       setState(() => fraction = (i + 1) / pages.length);
@@ -540,6 +548,20 @@ class _ReviewScreenState extends State<ReviewScreen> {
                       ],
                     ),
                   ),
+                  if (doc.selected.any((p) => !p.recognized))
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+                      child: SizedBox(
+                        width: double.infinity,
+                        child: FilledButton.icon(
+                          onPressed: () => work('Recognizing text', recognize),
+                          icon: const Icon(Icons.text_snippet_outlined),
+                          label: Text(
+                            'Recognize ${doc.selected.where((p) => !p.recognized).length} unread pages',
+                          ),
+                        ),
+                      ),
+                    ),
                   if (doc.warnings.isNotEmpty)
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -653,6 +675,21 @@ class _ReviewScreenState extends State<ReviewScreen> {
                                                 page: page,
                                                 store: widget.store,
                                                 doc: doc,
+                                                language:
+                                                    widget.settings.getString(
+                                                      'language',
+                                                    ) ??
+                                                    'ne',
+                                                autoRotate:
+                                                    widget.settings.getBool(
+                                                      'rotate',
+                                                    ) ??
+                                                    true,
+                                                checkDigits:
+                                                    widget.settings.getBool(
+                                                      'digits',
+                                                    ) ??
+                                                    true,
                                               ),
                                             ),
                                           );
