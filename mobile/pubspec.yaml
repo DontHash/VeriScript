@@ -101,8 +101,12 @@ flutter:
   # see https://flutter.dev/to/font-from-package
 
   fonts:
+    - family: Instrument Serif
+      fonts:
+        - asset: assets/InstrumentSerif-Regular.ttf
     - family: Mukta
       fonts:
         - asset: assets/Mukta-Regular.ttf
   assets:
     - assets/OFL.txt
+    - assets/InstrumentSerif-OFL.txt

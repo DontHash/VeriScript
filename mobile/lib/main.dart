@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'documents.dart';
 import 'review.dart';
 import 'copy.dart';
+import 'selection.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -64,7 +65,21 @@ ThemeData studioTheme(Brightness brightness) {
     useMaterial3: true,
     brightness: brightness,
     fontFamily: 'Mukta',
+    textTheme: const TextTheme(
+      displayLarge: TextStyle(
+        fontFamily: 'Instrument Serif',
+        fontFamilyFallback: ['Mukta'],
+        fontSize: 38,
+        height: 1.15,
+      ),
+      displayMedium: TextStyle(
+        fontFamily: 'Instrument Serif',
+        fontFamilyFallback: ['Mukta'],
+        fontSize: 30,
+      ),
+    ),
     colorScheme: scheme,
+    focusColor: amber.withValues(alpha: 0.2),
     scaffoldBackgroundColor: background,
     appBarTheme: AppBarTheme(
       backgroundColor: background,
@@ -91,35 +106,74 @@ ThemeData studioTheme(Brightness brightness) {
       ),
     ),
     iconButtonTheme: IconButtonThemeData(
-      style: IconButton.styleFrom(minimumSize: const Size(48, 48)),
+      style: ButtonStyle(
+        minimumSize: const WidgetStatePropertyAll(Size(48, 48)),
+        foregroundColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.disabled)) return null;
+          return states.contains(WidgetState.selected)
+              ? scheme.onPrimary
+              : scheme.onSurfaceVariant;
+        }),
+        backgroundColor: WidgetStateProperty.resolveWith(
+          (states) =>
+              states.contains(WidgetState.selected) &&
+                  !states.contains(WidgetState.disabled)
+              ? amber
+              : null,
+        ),
+      ),
+    ),
+    chipTheme: ChipThemeData(
+      selectedColor: amber,
+      checkmarkColor: scheme.onPrimary,
+      labelStyle: TextStyle(
+        color: WidgetStateColor.resolveWith(
+          (states) => states.contains(WidgetState.disabled)
+              ? ink.withValues(alpha: 0.38)
+              : states.contains(WidgetState.selected)
+              ? scheme.onPrimary
+              : ink,
+        ),
+      ),
+    ),
+    tabBarTheme: TabBarThemeData(
+      indicatorColor: amber,
+      labelColor: ink,
+      unselectedLabelColor: scheme.onSurfaceVariant,
+      labelStyle: const TextStyle(
+        fontFamily: 'Mukta',
+        fontWeight: FontWeight.w600,
+      ),
+      unselectedLabelStyle: const TextStyle(fontFamily: 'Mukta'),
     ),
     inputDecorationTheme: InputDecorationTheme(
       filled: true,
       fillColor: surface,
       border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
     ),
-    navigationBarTheme: dark
-        ? NavigationBarThemeData(
-            backgroundColor: surface,
-            indicatorColor: scheme.surfaceContainerHighest,
-            iconTheme: WidgetStateProperty.resolveWith(
-              (states) => IconThemeData(
-                color: states.contains(WidgetState.selected)
-                    ? amber
-                    : scheme.onSurfaceVariant,
-              ),
-            ),
-            labelTextStyle: WidgetStateProperty.resolveWith(
-              (states) => TextStyle(
-                fontFamily: 'Mukta',
-                fontSize: 14,
-                color: states.contains(WidgetState.selected)
-                    ? amber
-                    : scheme.onSurfaceVariant,
-              ),
-            ),
-          )
-        : const NavigationBarThemeData(),
+    navigationBarTheme: NavigationBarThemeData(
+      backgroundColor: dark ? surface : null,
+      indicatorColor: amber,
+      iconTheme: WidgetStateProperty.resolveWith(
+        (states) => IconThemeData(
+          color: states.contains(WidgetState.selected)
+              ? scheme.onPrimary
+              : scheme.onSurfaceVariant,
+        ),
+      ),
+      labelTextStyle: WidgetStateProperty.resolveWith(
+        (states) => TextStyle(
+          fontFamily: 'Mukta',
+          fontSize: 14,
+          color: states.contains(WidgetState.selected)
+              ? ink
+              : scheme.onSurfaceVariant,
+          fontWeight: states.contains(WidgetState.selected)
+              ? FontWeight.w600
+              : FontWeight.w400,
+        ),
+      ),
+    ),
   );
 }
 
@@ -412,13 +466,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
               children: [
                 if (error != null) Text(error!),
                 if (tab == 0) ...[
-                  const Text(
+                  Text(
                     'From paper\nto possibility.',
-                    style: TextStyle(
-                      fontFamily: 'serif',
-                      fontSize: 38,
-                      height: 1.15,
-                    ),
+                    style: Theme.of(context).textTheme.displayLarge,
                   ),
                   const SizedBox(height: 16),
                   const Text(
@@ -598,20 +648,32 @@ class _LibraryScreenState extends State<LibraryScreen> {
   Widget settings() => ListView(
     padding: const EdgeInsets.all(24),
     children: [
-      const Text(
+      Text(
         'Make yourself at home.',
-        style: TextStyle(fontFamily: 'serif', fontSize: 30),
+        style: Theme.of(context).textTheme.displayMedium,
       ),
       const SizedBox(height: 24),
       DropdownButtonFormField<int>(
         isExpanded: true,
         initialValue: widget.settings.getInt('theme') ?? 0,
         decoration: const InputDecoration(labelText: 'Appearance'),
-        items: const [
-          DropdownMenuItem(value: 0, child: Text('Follow system')),
-          DropdownMenuItem(value: 1, child: Text('Paper & Ink · light')),
-          DropdownMenuItem(value: 2, child: Text('Night Studio · dark')),
-        ],
+        items:
+            {
+                  0: 'Follow system',
+                  1: 'Paper & Ink · light',
+                  2: 'Night Studio · dark',
+                }.entries
+                .map(
+                  (entry) => DropdownMenuItem(
+                    value: entry.key,
+                    child: SelectionLabel(
+                      entry.value,
+                      selected:
+                          entry.key == (widget.settings.getInt('theme') ?? 0),
+                    ),
+                  ),
+                )
+                .toList(),
         onChanged: (v) async {
           await widget.settings.setInt('theme', v!);
           widget.onAppearance();
@@ -623,13 +685,27 @@ class _LibraryScreenState extends State<LibraryScreen> {
         isExpanded: true,
         initialValue: widget.settings.getString('language') ?? 'ne',
         decoration: const InputDecoration(labelText: 'OCR language'),
-        items: const [
-          DropdownMenuItem(value: 'ne', child: Text('Nepali · Devanagari')),
-          DropdownMenuItem(value: 'hi', child: Text('Hindi · Devanagari')),
-          DropdownMenuItem(value: 'en', child: Text('English · Latin')),
-        ],
+        items:
+            {
+                  'ne': 'Nepali · Devanagari',
+                  'hi': 'Hindi · Devanagari',
+                  'en': 'English · Latin',
+                }.entries
+                .map(
+                  (entry) => DropdownMenuItem(
+                    value: entry.key,
+                    child: SelectionLabel(
+                      entry.value,
+                      selected:
+                          entry.key ==
+                          (widget.settings.getString('language') ?? 'ne'),
+                    ),
+                  ),
+                )
+                .toList(),
         onChanged: (v) async {
           await widget.settings.setString('language', v!);
+          if (mounted) setState(() {});
         },
       ),
       const SizedBox(height: 16),

@@ -4,6 +4,8 @@ This records the initial mobile baseline before P1. See [P1 implementation and c
 
 See [P2 appearance and review checks](P2.md) for the subsequent UI changes and their verification.
 
+See [P3 typography and selection checks](P3.md) for the subsequent visual-polish batch.
+
 This is a development build, not a claim of desktop feature parity or physical-phone certification.
 
 ## Automated evidence

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
+import 'selection.dart';
 
 class CaptureScreen extends StatefulWidget {
   const CaptureScreen({
@@ -248,20 +249,22 @@ class _VideoOptionsSheetState extends State<VideoOptionsSheet> {
             isExpanded: true,
             initialValue: layout,
             decoration: const InputDecoration(labelText: 'Page layout'),
-            items: const [
-              DropdownMenuItem(
-                value: 'spread',
-                child: Text('Open book · left page then right'),
-              ),
-              DropdownMenuItem(
-                value: 'single',
-                child: Text('One page at a time'),
-              ),
-              DropdownMenuItem(
-                value: 'auto',
-                child: Text('Detect layout automatically'),
-              ),
-            ],
+            items:
+                {
+                      'spread': 'Open book · left page then right',
+                      'single': 'One page at a time',
+                      'auto': 'Detect layout automatically',
+                    }.entries
+                    .map(
+                      (entry) => DropdownMenuItem(
+                        value: entry.key,
+                        child: SelectionLabel(
+                          entry.value,
+                          selected: entry.key == layout,
+                        ),
+                      ),
+                    )
+                    .toList(),
             onChanged: (v) => setState(() => layout = v!),
           ),
           const SizedBox(height: 20),
