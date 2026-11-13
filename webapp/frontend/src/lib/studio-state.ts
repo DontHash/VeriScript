@@ -1,6 +1,6 @@
 /** Studio state — one factory, used by the homepage hero and the full studio
  *  page, so the product behaves identically wherever it is embedded. */
-import { createMemo, createSignal, onCleanup } from "solid-js";
+import { createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
 import { announce } from "./announce";
 import { clearMemory as clearMemoryApi, correctRun, exportRunCorrections, runRestore } from "./api";
 import { refreshHealth, retentionText, useHealth } from "./health";
@@ -15,6 +15,57 @@ import type {
 } from "./types";
 
 export type StudioPhase = "idle" | "running" | "done" | "error";
+
+/** Accepted inputs; mirrors the server's validate_upload. */
+export const ACCEPTED_EXTENSIONS = [".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff", ".pdf"];
+
+/** Why a file cannot be read, or null when it can. */
+export function fileProblem(file: File, maxMb: number): string | null {
+  const name = file.name.toLowerCase();
+  if (!ACCEPTED_EXTENSIONS.some((ext) => name.endsWith(ext))) {
+    return `${file.name} is not a supported file. Use a PNG, JPG, WebP, TIFF or PDF.`;
+  }
+  if (file.size === 0) return `${file.name} is empty.`;
+  if (file.size > maxMb * 1024 * 1024) {
+    return `${file.name} is larger than ${maxMb} MB. Use a smaller file, or split the PDF into parts.`;
+  }
+  return null;
+}
+
+/** The last finished run, kept in this browser so a refresh does not lose
+ *  the review. Per-viewer convenience only; the server copy expires. */
+const SAVED_KEY = "veriscript.studio.lastRun.v1";
+interface SavedRun {
+  savedAt: number;
+  result: RunPayload;
+  corrections: CorrectionInput[];
+  appliedSigs: Record<number, string>;
+}
+
+function loadSavedRun(): SavedRun | null {
+  try {
+    const raw = window.localStorage.getItem(SAVED_KEY);
+    if (!raw) return null;
+    const saved = JSON.parse(raw) as SavedRun;
+    const expiresAt = saved.savedAt + (saved.result?.expires_in ?? 0) * 1000;
+    if (!saved.result?.run_id || Date.now() >= expiresAt) {
+      window.localStorage.removeItem(SAVED_KEY);
+      return null;
+    }
+    return saved;
+  } catch {
+    return null;
+  }
+}
+
+function storeSavedRun(saved: SavedRun | null) {
+  try {
+    if (saved) window.localStorage.setItem(SAVED_KEY, JSON.stringify(saved));
+    else window.localStorage.removeItem(SAVED_KEY);
+  } catch {
+    /* storage full or blocked: the run simply is not restored */
+  }
+}
 
 export function createStudioState() {
   const [file, setFile] = createSignal<File | null>(null);
@@ -46,6 +97,11 @@ export function createStudioState() {
   // pending count must ignore what was already sent — otherwise "apply" stays
   // enabled and re-posts the same corrections.
   const [appliedSigs, setAppliedSigs] = createSignal<Record<number, string>>({});
+  /** When the shown result came back from a previous visit (ms), else null. */
+  const [restoredAt, setRestoredAt] = createSignal<number | null>(null);
+  /** A short notice about the last file choice (e.g. extra files ignored). */
+  const [notice, setNotice] = createSignal<string | null>(null);
+  let savedAt = Date.now();
 
   const correctionSig = (c: CorrectionInput) =>
     [c.index, c.corrected, c.action, c.suggested ?? "", c.suggestion_source ?? ""].join("\u0000");
@@ -63,14 +119,71 @@ export function createStudioState() {
   };
 
   let timer: number | undefined;
+  let controller: AbortController | undefined;
+
+  // Bring back the last result after a refresh or a closed tab.
+  const saved = loadSavedRun();
+  if (saved) {
+    savedAt = saved.savedAt;
+    setResult(saved.result);
+    setCorrections(saved.corrections ?? []);
+    setAppliedSigs(saved.appliedSigs ?? {});
+    setRestoredAt(saved.savedAt);
+    setPhase("done");
+  }
+
+  createEffect(() => {
+    const r = result();
+    storeSavedRun(
+      phase() === "done" && r
+        ? { savedAt, result: r, corrections: corrections(), appliedSigs: appliedSigs() }
+        : null,
+    );
+  });
+
+  // Staged corrections live only in this page until they are applied.
+  onMount(() => {
+    const guard = (e: BeforeUnloadEvent) => {
+      if (pendingCorrections().length === 0) return;
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", guard);
+    onCleanup(() => window.removeEventListener("beforeunload", guard));
+  });
 
   onCleanup(() => {
     if (timer) window.clearInterval(timer);
+    controller?.abort();
     if (inputUrl()) URL.revokeObjectURL(inputUrl()!);
   });
 
+  const maxUploadMb = () => health()?.limits.max_upload_mb ?? 12;
+
+  /** Take the first file; say so when more were offered, and refuse files
+   *  the server would reject before uploading them. */
+  const chooseFiles = (files: File[]) => {
+    const [first] = files;
+    if (!first) return;
+    const problem = fileProblem(first, maxUploadMb());
+    if (problem) {
+      setNotice(null);
+      setError(problem);
+      setPhase("error");
+      return;
+    }
+    chooseFile(first);
+    setNotice(
+      files.length > 1
+        ? `Using ${first.name}. The studio reads one image or PDF at a time; ${files.length - 1} other ${files.length === 2 ? "file was" : "files were"} not added.`
+        : null,
+    );
+  };
+
   const chooseFile = (next: File) => {
     if (inputUrl()) URL.revokeObjectURL(inputUrl()!);
+    setNotice(null);
+    setRestoredAt(null);
     setInputUrl(next.type.startsWith("image/") ? URL.createObjectURL(next) : null);
     setFile(next);
     setResult(null);
@@ -81,6 +194,8 @@ export function createStudioState() {
 
   const clearFile = () => {
     if (inputUrl()) URL.revokeObjectURL(inputUrl()!);
+    setNotice(null);
+    setRestoredAt(null);
     setInputUrl(null);
     setFile(null);
     setResult(null);
@@ -107,6 +222,7 @@ export function createStudioState() {
     setPhase("running");
     setError(null);
     setElapsed(0);
+    controller = new AbortController();
     announce(`Reading ${f.name}. This can take a minute.`);
     const startedAt = performance.now();
     timer = window.setInterval(() => setElapsed((performance.now() - startedAt) / 1000), 100);
@@ -123,7 +239,8 @@ export function createStudioState() {
           txt: wantTxt(),
           md: wantMd(),
         },
-      });
+      }, controller.signal);
+      savedAt = Date.now();
       setResult(payload);
       setPhase("done");
       resetCorrections();
@@ -132,12 +249,24 @@ export function createStudioState() {
         `Done. ${n_tokens} tokens read, ${flagged} ${flagged === 1 ? "needs" : "need"} review.`,
       );
     } catch (e) {
-      setError(e instanceof Error ? e.message : "The run failed.");
-      setPhase("error");
+      if (e instanceof DOMException && e.name === "AbortError") {
+        setPhase("idle");
+        announce("Stopped. Your file is still selected.");
+      } else {
+        setError(e instanceof Error ? e.message : "The run failed.");
+        setPhase("error");
+      }
     } finally {
+      controller = undefined;
       if (timer) window.clearInterval(timer);
       refreshHealth();
     }
+  };
+
+  /** Stop waiting for the current page. The server finishes the page it has
+   *  already started and discards it when its retention window ends. */
+  const cancel = () => {
+    controller?.abort();
   };
 
   const stageCorrection = (correction: CorrectionInput) => {
@@ -252,7 +381,11 @@ export function createStudioState() {
     showBoxes,
     setShowBoxes,
     chooseFile,
+    chooseFiles,
     clearFile,
+    cancel,
+    notice,
+    restoredAt,
     pickExample,
     start,
     corrections,

@@ -1,6 +1,7 @@
 import { createMemo, createSignal, For, Show } from "solid-js";
 import { announce } from "../lib/announce";
 import { flagMeta } from "../lib/flags";
+import { TokenCrop } from "./TokenCrop";
 import type { QueueItem, Suggestion } from "../lib/types";
 import { type StudioState } from "../lib/studio-state";
 
@@ -17,6 +18,13 @@ export function CorrectionReview(props: { state: StudioState }) {
   const [active, setActive] = createSignal(0);
   const [edited, setEdited] = createSignal<Record<number, string>>({});
   const [share, setShare] = createSignal<Record<number, boolean>>({});
+
+  // Boxes are in the processed page's pixels. Multi-page runs do not say
+  // which page a token is on yet, so crops are shown for single pages only.
+  const cropSrc = () => {
+    const r = s.result();
+    return r && r.meta.pages_processed <= 1 ? r.files.restored : null;
+  };
 
   const clampActive = () => Math.min(active(), Math.max(0, rows().length - 1));
   const pendingCount = () => s.pendingCorrections().length;
@@ -167,6 +175,18 @@ export function CorrectionReview(props: { state: StudioState }) {
         </button>
       </div>
 
+      <details class="review__keys">
+        <summary>Keyboard shortcuts</summary>
+        <dl>
+          <dt><kbd>Enter</kbd></dt>
+          <dd>Stage what is in the box (unchanged text counts as Keep) and go to the next token</dd>
+          <dt><kbd>Esc</kbd></dt>
+          <dd>Undo your typing in this box</dd>
+          <dt><kbd>↑</kbd> <kbd>↓</kbd></dt>
+          <dd>Previous or next token</dd>
+        </dl>
+      </details>
+
       <Show when={s.health()?.limits.memory}>
         <p class="field__hint">
           Local correction memory is on: suggestions come from your own previous
@@ -232,6 +252,9 @@ export function CorrectionReview(props: { state: StudioState }) {
                     }
                   >
                   <div class="review__main">
+                    <Show when={cropSrc() && row.bbox}>
+                      <TokenCrop src={cropSrc()!} bbox={row.bbox!} />
+                    </Show>
                     <span class="review__original">{row.text}</span>
                     <input
                       id={key === null ? undefined : `review-input-${key}`}

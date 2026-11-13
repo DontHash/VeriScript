@@ -1,12 +1,14 @@
 import { createSignal, onCleanup, onMount, Show } from "solid-js";
 import { formatBytes } from "../lib/api";
+import { ACCEPTED_EXTENSIONS } from "../lib/studio-state";
 
-const ACCEPT = ".png,.jpg,.jpeg,.webp,.bmp,.tif,.tiff,.pdf";
+const ACCEPT = ACCEPTED_EXTENSIONS.join(",");
 
-/** Drag & drop, click, or paste one page. */
+/** Drag & drop, click, or paste a page. Every offered file is passed on;
+ *  the studio decides what to do with more than one. */
 export function DropZone(props: {
   file: File | null;
-  onFile: (file: File) => void;
+  onFiles: (files: File[]) => void;
   onClear: () => void;
   disabled?: boolean;
 }) {
@@ -15,15 +17,16 @@ export function DropZone(props: {
   let input: HTMLInputElement | undefined;
   let thumbUrl: string | undefined;
 
-  const accept = (file: File | undefined | null) => {
-    if (!file || props.disabled) return;
-    props.onFile(file);
+  const accept = (files: FileList | File[] | null | undefined) => {
+    const list = Array.from(files ?? []);
+    if (!list.length || props.disabled) return;
+    props.onFiles(list);
   };
 
   const onDrop = (e: DragEvent) => {
     e.preventDefault();
     setDragging(false);
-    accept(e.dataTransfer?.files?.[0]);
+    accept(e.dataTransfer?.files);
   };
 
   onMount(() => {
@@ -35,7 +38,7 @@ export function DropZone(props: {
         i.type.startsWith("image/"),
       );
       const file = item?.getAsFile();
-      if (file) accept(file);
+      if (file) accept([file]);
     };
     document.addEventListener("paste", onPaste);
     onCleanup(() => {
@@ -56,7 +59,7 @@ export function DropZone(props: {
         tabindex={-1}
         aria-label="Choose a page file"
         onChange={(e) => {
-          accept(e.currentTarget.files?.[0]);
+          accept(e.currentTarget.files);
           // allow choosing the same file again after clearing it
           e.currentTarget.value = "";
         }}

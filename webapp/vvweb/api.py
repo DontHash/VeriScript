@@ -7,17 +7,19 @@
 from __future__ import annotations
 
 import asyncio
+import io
 import json
 import os
 import shutil
 import threading
 import time
+import zipfile
 from contextlib import asynccontextmanager
 from typing import Any, Dict, Optional
 
 from fastapi import (Body, Depends, FastAPI, File, Form, HTTPException, Request,
                      UploadFile, status)
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from .config import settings
@@ -28,7 +30,7 @@ from .security import (DailyKeyedQuota, DailyQuota, DesktopSessionMiddleware,
                        RateLimiter, SecurityHeadersMiddleware, client_key,
                        http_exception_handler, new_run_id, require_auth,
                        validate_upload)
-from .storage import PUBLIC_FILES, RunStore
+from .storage import PUBLIC_FILES, RUN_ID_RE, RunStore
 
 from veriscript.logging_setup import get_logger
 
@@ -368,8 +370,8 @@ def create_app() -> FastAPI:
         if not acquired:
             shutil.rmtree(run_dir, ignore_errors=True)
             raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                                detail="The demo worker is busy with another "
-                                       "page. Try again in a moment.",
+                                detail="Another page is still being read. "
+                                       "Try again in a moment.",
                                 headers={"Retry-After": "10"})
         _worker_busy.set()
         try:
@@ -414,6 +416,29 @@ def create_app() -> FastAPI:
         return JSONResponse(payload)
 
     # -- artifacts ---------------------------------------------------------
+    @app.get("/api/runs/{run_id}/files.zip", dependencies=[Depends(require_auth)])
+    async def run_files_zip(run_id: str) -> Response:
+        """Every result file of a run in one archive ("Download all").
+
+        The training export (corrections.zip) is left out: it is only ever
+        shared by an explicit, separate choice."""
+        if not RUN_ID_RE.match(run_id) or store.read_manifest(run_id) is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
+                                detail="This result has expired. Run the page again.")
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            for name in PUBLIC_FILES:
+                if name == "corrections.zip":
+                    continue
+                path = store.resolve_file(run_id, name)
+                if path:
+                    zf.write(path, arcname=PUBLIC_FILES[name]["download"])
+        return Response(
+            buf.getvalue(), media_type="application/zip",
+            headers={"Content-Disposition":
+                     f'attachment; filename="veriscript-{run_id}.zip"',
+                     "Cache-Control": "private, no-store"})
+
     @app.get("/api/runs/{run_id}/files/{name}", dependencies=[Depends(require_auth)])
     async def run_file(run_id: str, name: str, download: int = 0) -> FileResponse:
         if name not in PUBLIC_FILES:

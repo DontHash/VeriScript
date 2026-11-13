@@ -29,8 +29,11 @@ export function StudioResults(props: { state: StudioState }) {
   let heading: HTMLHeadingElement | undefined;
 
   // A finished run replaces the idle stage: move focus to its heading so
-  // keyboard and screen-reader users start reading at the results.
-  onMount(() => heading?.focus());
+  // keyboard and screen-reader users start reading at the results. A result
+  // restored on page load is not announced and does not take focus.
+  onMount(() => {
+    if (s.restoredAt() === null) heading?.focus();
+  });
 
   const afterUrl = createMemo(() => {
     const p = s.result();
@@ -80,6 +83,15 @@ export function StudioResults(props: { state: StudioState }) {
             </Show>
           </dl>
 
+          <Show when={s.restoredAt()}>
+            {(at) => (
+              <p class="field__hint" role="status">
+                Your last result, from{" "}
+                {new Date(at()).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}.
+                The original image is not kept in the browser, so Compare shows the result only.
+              </p>
+            )}
+          </Show>
           <Show when={result().meta.resized}>
             <p class="field__hint">
               Large page: downscaled to 2500 px before processing; the review boxes
@@ -160,6 +172,13 @@ export function StudioResults(props: { state: StudioState }) {
 
             <TabPanel idPrefix="result" id="files" selected={tab() === "files"}>
               <div class="stack-16">
+                <a
+                  class="btn btn--primary download-all"
+                  href={`/api/runs/${result().run_id}/files.zip`}
+                  download={`veriscript-${result().run_id}.zip`}
+                >
+                  Download all files (.zip)
+                </a>
                 <ul class="downloads" aria-label="Files from this run">
                   <For each={DOWNLOADS.filter((d) => result().files[d.key])}>
                     {(d) => (

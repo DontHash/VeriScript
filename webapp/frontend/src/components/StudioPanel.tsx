@@ -20,10 +20,16 @@ export function StudioPanel(props: { state: StudioState; compact?: boolean }) {
     <div class="panel">
       <DropZone
         file={s.file()}
-        onFile={s.chooseFile}
+        onFiles={s.chooseFiles}
         onClear={s.clearFile}
         disabled={running()}
       />
+
+      <Show when={s.notice()}>
+        <p class="field__hint" role="status">
+          {s.notice()}
+        </p>
+      </Show>
 
       <div class="panel__examples">
         <p class="field__hint">Or try a real example</p>
@@ -184,6 +190,9 @@ export function StudioPanel(props: { state: StudioState; compact?: boolean }) {
           {running() ? "Reading…" : "Restore and read"}
         </button>
         <Show when={running()}>
+          <button class="btn btn--ghost btn--small" type="button" onClick={() => s.cancel()}>
+            Cancel
+          </button>
           <div class="progress" role="progressbar" aria-label="Reading the page">
             <div class="progress__fill" />
           </div>

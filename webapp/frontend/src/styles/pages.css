@@ -149,7 +149,9 @@
   gap: var(--space-4);
 }
 
-.panel__options > .btn {
+.panel__options > .btn,
+.runbar > .btn--ghost,
+.download-all {
   align-self: flex-start;
 }
 

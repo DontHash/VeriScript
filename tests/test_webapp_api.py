@@ -494,3 +494,31 @@ def test_memory_suggestions_feedback_and_clear(client, monkeypatch, tmp_path):
 def test_memory_off_by_default(client, monkeypatch):
     monkeypatch.delenv("VERISCRIPT_MEMORY", raising=False)
     assert client.get("/api/health").json()["limits"]["memory"] is False
+
+
+def test_download_all_zips_every_result_file(client, monkeypatch):
+    import zipfile as _zipfile
+
+    from veriscript.document import pipeline as document_pipeline
+
+    monkeypatch.setattr(document_pipeline, "run_document_pipeline",
+                        _fake_pipeline())
+    r = client.post("/api/restore",
+                    files={"file": ("page.png", _png_bytes(), "image/png")},
+                    data={"lang": "en"})
+    assert r.status_code == 200, r.text
+    run_id = r.json()["run_id"]
+
+    dl = client.get(f"/api/runs/{run_id}/files.zip")
+    assert dl.status_code == 200
+    assert dl.headers["content-type"] == "application/zip"
+    assert f'filename="veriscript-{run_id}.zip"' in dl.headers["content-disposition"]
+    names = set(_zipfile.ZipFile(io.BytesIO(dl.content)).namelist())
+    assert {"restored.png", "transcript.txt", "transcript.md", "ocr.json"} <= names
+    assert "corrections.zip" not in names
+
+
+def test_download_all_rejects_unknown_and_malformed_runs(client):
+    assert client.get("/api/runs/0123456789abcdef/files.zip").status_code == 404
+    assert client.get("/api/runs/..%2F..%2Fetc/files.zip").status_code == 404
+    assert client.get("/api/runs/not-a-run/files.zip").status_code == 404
