@@ -1,6 +1,7 @@
 /** Studio state — one factory, used by the homepage hero and the full studio
  *  page, so the product behaves identically wherever it is embedded. */
 import { createMemo, createSignal, onCleanup } from "solid-js";
+import { announce } from "./announce";
 import { clearMemory as clearMemoryApi, correctRun, exportRunCorrections, fetchHealth, runRestore } from "./api";
 import type {
   CorrectionInput,
@@ -25,7 +26,7 @@ export function createStudioState() {
   const [wantPdf, setWantPdf] = createSignal(true);
   const [wantTxt, setWantTxt] = createSignal(true);
   const [wantMd, setWantMd] = createSignal(true);
-  const [advancedOpen, setAdvancedOpen] = createSignal(true);
+  const [advancedOpen, setAdvancedOpen] = createSignal(false);
   const [phase, setPhase] = createSignal<StudioPhase>("idle");
   const [result, setResult] = createSignal<RunPayload | null>(null);
   const [error, setError] = createSignal<string | null>(null);
@@ -109,6 +110,7 @@ export function createStudioState() {
     setPhase("running");
     setError(null);
     setElapsed(0);
+    announce(`Reading ${f.name}. This can take a minute.`);
     const startedAt = performance.now();
     timer = window.setInterval(() => setElapsed((performance.now() - startedAt) / 1000), 100);
     try {
@@ -128,6 +130,10 @@ export function createStudioState() {
       setResult(payload);
       setPhase("done");
       resetCorrections();
+      const { n_tokens, flagged } = payload.meta;
+      announce(
+        `Done. ${n_tokens} tokens read, ${flagged} ${flagged === 1 ? "needs" : "need"} review.`,
+      );
     } catch (e) {
       setError(e instanceof Error ? e.message : "The run failed.");
       setPhase("error");
@@ -171,6 +177,9 @@ export function createStudioState() {
       });
       setLastStats(res.stats);
       setExportResult(null);
+      announce(
+        `Applied: ${res.stats.changed} changed, ${res.stats.confirmed} confirmed. Corrected files are ready.`,
+      );
       setAppliedSigs((prev) => ({
         ...prev,
         ...Object.fromEntries(list.map((c) => [c.index, correctionSig(c)])),
@@ -189,7 +198,9 @@ export function createStudioState() {
     setCorrecting(true);
     setCorrectionError(null);
     try {
-      setExportResult(await exportRunCorrections(p.run_id, list, share));
+      const out = await exportRunCorrections(p.run_id, list, share);
+      setExportResult(out);
+      announce(`corrections.zip is ready with ${out.shared} crops.`);
     } catch (e) {
       setCorrectionError(
         e instanceof Error ? e.message : "Could not build the corrections archive.",
@@ -204,6 +215,7 @@ export function createStudioState() {
     try {
       const out = await clearMemoryApi();
       setMemoryCleared(out.removed);
+      announce(`Correction memory cleared: ${out.removed} records removed.`);
     } catch (e) {
       setCorrectionError(
         e instanceof Error ? e.message : "Could not clear the local memory.",

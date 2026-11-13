@@ -65,7 +65,7 @@ test.describe("axe", () => {
   test("studio video mode", async ({ page }) => {
     await mockApi(page);
     await page.goto("/studio");
-    await page.getByRole("button", { name: "Book video" }).click();
+    await page.getByRole("tab", { name: "Book video" }).click();
     await expect(page.getByRole("button", { name: "Choose a video" })).toBeVisible();
     await audit(page, "studio-video");
   });

@@ -1,4 +1,5 @@
 import { createSignal, Show } from "solid-js";
+import { TabPanel, Tabs } from "../components/Tabs";
 import { VideoScanner } from "../components/VideoScanner";
 import { StudioPanel } from "../components/StudioPanel";
 import { StudioResults } from "../components/StudioResults";
@@ -19,28 +20,27 @@ export function Studio() {
           </p>
         </div>
 
-        <div class="tabs" aria-label="Scan mode">
-          <button
-            class="tab"
-            aria-pressed={mode() === "page"}
-            disabled={studio.phase() === "running"}
-            onClick={() => setMode("page")}
-          >
-            Photo or PDF
-          </button>
-          <button
-            class="tab"
-            aria-pressed={mode() === "video"}
-            disabled={studio.phase() === "running"}
-            onClick={() => setMode("video")}
-          >
-            Book video
-          </button>
-        </div>
-        <div hidden={mode() !== "video"}>
+        <Tabs
+          label="Scan mode"
+          idPrefix="mode"
+          items={[
+            { id: "page", label: "Photo or PDF" },
+            { id: "video", label: "Book video" },
+          ]}
+          selected={mode()}
+          onSelect={setMode}
+          disabled={studio.phase() === "running"}
+        />
+        <TabPanel idPrefix="mode" id="video" selected={mode() === "video"} keepMounted>
           <VideoScanner />
-        </div>
-        <div class="studio__grid" hidden={mode() !== "page"}>
+        </TabPanel>
+        <TabPanel
+          idPrefix="mode"
+          id="page"
+          selected={mode() === "page"}
+          keepMounted
+          class="studio__grid"
+        >
           <div class="studio__panel">
             <StudioPanel state={studio} />
           </div>
@@ -53,7 +53,7 @@ export function Studio() {
               <StudioResults state={studio} />
             </Show>
           </div>
-        </div>
+        </TabPanel>
       </div>
     </div>
   );

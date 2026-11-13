@@ -17,7 +17,8 @@
 
   /* rules */
   --line: #d9d2c2;
-  --line-strong: #a39b8c;
+  /* ≥ 3:1 on every paper surface (WCAG 1.4.11 for field and control edges) */
+  --line-strong: #857d6e;
   --line-soft: #e3ddcf;
 
   /* slate — the machine surface */
@@ -30,6 +31,8 @@
   /* the single accent */
   --amber-500: #e8a200;
   --amber-600: #b98200;
+  /* amber for text on paper: ≥ 4.5:1 on paper-050/100/200 */
+  --amber-800: #7d5a00;
 
   /* data colors — the review queue only */
   --flag-green: #007a33;
@@ -101,6 +104,7 @@
   --accent: var(--amber-500);
   --accent-hover: var(--amber-600);
   --accent-ink: var(--ink-900);
+  --accent-text: var(--amber-800);
 
   --slate-bg: var(--slate-900);
   --slate-surface: var(--slate-800);
@@ -134,5 +138,11 @@
 
   --table-rule: var(--line-soft);
 
-  --focus-ring: var(--accent);
+  /* Ink ring on paper (≥ 15:1); amber ring on slate surfaces (≥ 8:1). */
+  --focus-ring: var(--ink-900);
+  --focus-ring-on-slate: var(--amber-500);
+
+  /* minimum interactive heights (WCAG 2.5.8 needs 24px; we aim higher) */
+  --control-h: 44px;
+  --control-h-small: 36px;
 }

@@ -1,4 +1,5 @@
 import { createMemo, createSignal, For, Show } from "solid-js";
+import { announce } from "../lib/announce";
 import { fetchHealth, formatBytes } from "../lib/api";
 
 interface CapturePage {
@@ -62,6 +63,7 @@ export function VideoScanner() {
       body.append("file", input); body.append("layout", layout());
       const result: Capture = await responseJson(await fetch("/api/video-scan", { method: "POST", body }));
       setCapture(result); setOrder(result.pages.map((p) => p.id)); setExcluded([]);
+      announce(`Found ${result.pages.length} pages. Review them below before exporting.`);
     } catch (e) { setError(e instanceof Error ? e.message : "Capture failed."); }
     finally { setPhase("idle"); }
   };
@@ -71,6 +73,15 @@ export function VideoScanner() {
     if (target < 0 || target >= next.length) return;
     [next[index], next[target]] = [next[target], next[index]];
     setOrder(next); invalidate();
+    announce(`Moved to position ${target + 1} of ${next.length}.`);
+    // Reordering re-inserts the card, which drops focus: put it back on the
+    // same button (or its sibling once the page reaches the first/last slot).
+    queueMicrotask(() => {
+      const up = document.getElementById(`video-move-up-${id}`) as HTMLButtonElement | null;
+      const down = document.getElementById(`video-move-down-${id}`) as HTMLButtonElement | null;
+      const [preferred, fallback] = delta < 0 ? [up, down] : [down, up];
+      (preferred && !preferred.disabled ? preferred : fallback)?.focus();
+    });
   };
   const exportPdf = async () => {
     const result = capture();
@@ -83,6 +94,7 @@ export function VideoScanner() {
       }));
       // Avoid browser cache retaining a previous export after changing order.
       setPdf(`${exported.pdf}?download=1&v=${Date.now()}`);
+      announce("Your book PDF is ready to download.");
     } catch (e) { setError(e instanceof Error ? e.message : "Export failed."); }
     finally { setPhase("idle"); }
   };
@@ -100,15 +112,18 @@ export function VideoScanner() {
         id="book-video"
         class="visually-hidden"
         type="file"
+        tabindex={-1}
+        aria-label="Choose a book video"
         accept=".mp4,.mov,.m4v,.avi,.webm"
         disabled={busy()}
         onChange={(e) => chooseFile(e.currentTarget.files?.[0] || null)}
       />
-      <button class="btn btn--ghost" type="button" disabled={busy()} onClick={() => videoInput?.click()}>
+      <button class="btn btn--ghost" type="button" disabled={busy()} aria-describedby="video-limits"
+        onClick={() => videoInput?.click()}>
         Choose a video
       </button>
       <Show when={file()}>{(f) => <span class="field__hint">{f().name} · {formatBytes(f().size)}</span>}</Show>
-      <span class="field__hint">Up to {limits().mb} MB · {limits().seconds / 60} minutes · {limits().pages} captured pages.
+      <span class="field__hint" id="video-limits">Up to {limits().mb} MB · {limits().seconds / 60} minutes · {limits().pages} captured pages.
         Processing happens on the server running this studio.</span>
     </div>
     <div class="field">
@@ -120,7 +135,7 @@ export function VideoScanner() {
         <option value="single">Single page</option>
       </select>
     </div>
-    <button class="btn btn--primary" disabled={!file() || busy()} onClick={() => void scan()}>
+    <button class="btn btn--primary" type="button" disabled={!file() || busy()} onClick={() => void scan()}>
       {phase() === "capture" ? "Finding steady pages…" : "Find page frames"}
     </button>
     <Show when={capture()}>{(result) => <div class="stack-16">
@@ -134,6 +149,7 @@ export function VideoScanner() {
           return <article class="video-page" data-excluded={excluded().includes(id)}>
             <a href={page().preview} target="_blank" rel="noreferrer">
               <img src={page().preview} loading="lazy" alt={`Captured page ${index() + 1}, ${page().side}`} />
+              <span class="visually-hidden"> (opens full size in a new tab)</span>
             </a>
             <label class="checkbox"><input type="checkbox" checked={!excluded().includes(id)} disabled={busy()}
               onChange={(e) => { setExcluded(e.currentTarget.checked ? excluded().filter((n) => n !== id) : [...excluded(), id]); invalidate(); }} />
@@ -141,10 +157,12 @@ export function VideoScanner() {
             </label>
             <For each={page().warnings}>{(w) => <p class="field__hint">{w}</p>}</For>
             <div class="button-row">
-              <button class="btn btn--ghost btn--small" disabled={busy() || index() === 0}
-                aria-label={`Move page ${index() + 1} earlier`} onClick={() => move(id, -1)}>Earlier</button>
-              <button class="btn btn--ghost btn--small" disabled={busy() || index() === order().length - 1}
-                aria-label={`Move page ${index() + 1} later`} onClick={() => move(id, 1)}>Later</button>
+              <button type="button" id={`video-move-up-${id}`} class="btn btn--ghost btn--small"
+                disabled={busy() || index() === 0}
+                aria-label={`Earlier: move page ${index() + 1} up`} onClick={() => move(id, -1)}>Earlier</button>
+              <button type="button" id={`video-move-down-${id}`} class="btn btn--ghost btn--small"
+                disabled={busy() || index() === order().length - 1}
+                aria-label={`Later: move page ${index() + 1} down`} onClick={() => move(id, 1)}>Later</button>
             </div>
           </article>;
         }}</For>
@@ -168,10 +186,11 @@ export function VideoScanner() {
             A full book can take several minutes (~4–8 s per page). The clean image PDF preserves the captures without OCR.</p>
         </div>
       </Show>
-      <button class="btn btn--primary" disabled={busy() || !selected().length} onClick={() => void exportPdf()}>
+      <button class="btn btn--primary" type="button" disabled={busy() || !selected().length} onClick={() => void exportPdf()}>
         {phase() === "export" ? "Building your book…" : `Create PDF (${selected().length} pages)`}
       </button>
-      <Show when={pdf()}>{(url) => <a class="download" href={url()}>↓ Download book.pdf</a>}</Show>
+      <Show when={pdf()}>{(url) => <a class="download" href={url()} download="book.pdf">
+        <span aria-hidden="true">↓</span> Download book.pdf</a>}</Show>
     </div>}</Show>
     <Show when={error()}>{(message) => <div class="alert" role="alert">{message()}</div>}</Show>
     <Show when={busy()}><p class="field__hint" role="status">{phase() === "capture" ? "Selecting clear views from the recording." : "Exporting the selected pages in your chosen order."} Keep this page open.</p></Show>

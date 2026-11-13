@@ -114,7 +114,7 @@ export function Landing() {
           </div>
 
           <CodeBlock
-            label="Run it locally"
+            label="commands"
             code={`pip install -r requirements.txt
 
 # one page in — cleaned page, searchable PDF, transcript, Markdown, OCR JSON out

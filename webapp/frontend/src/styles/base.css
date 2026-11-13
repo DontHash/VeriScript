@@ -49,6 +49,19 @@ body {
   outline-offset: 2px;
 }
 
+/* The ring sits 2px outside the element, so it contrasts with the surface
+   around it: amber inside slate areas, ink everywhere else. */
+.slate-section :focus-visible,
+.codeblock :focus-visible {
+  outline-color: var(--focus-ring-on-slate);
+}
+
+/* Programmatic focus targets (headings, alerts) get no ring: they are
+   announced, not operated. */
+[tabindex="-1"]:focus {
+  outline: none;
+}
+
 img,
 svg,
 canvas {

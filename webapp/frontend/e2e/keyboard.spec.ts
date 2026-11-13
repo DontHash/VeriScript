@@ -1,7 +1,7 @@
 /**
  * Keyboard and screen-reader behaviour that axe cannot see.
  *
- * Tests marked `test.fail()` are known debt from docs/UX_A11Y_AUDIT.md: they
+ * Tests marked `test.fail()` (none today) are known debt from docs/UX_A11Y_AUDIT.md: they
  * are expected to fail today. When a fix lands Playwright reports them as
  * "unexpectedly passed", which fails the run — remove the `test.fail()` line
  * then, so the behaviour stays locked in.
@@ -67,44 +67,55 @@ test("skip link is the first stop and lands on main", async ({ page, isMobile })
   await expect(page).toHaveURL(/#main$/);
 });
 
-test("every focus stop has a visible indicator ≥ 3:1 (WCAG 2.4.7 / 1.4.11)", async ({
-  page,
-  isMobile,
-}) => {
-  test.skip(isMobile, "no hardware keyboard");
-  test.fail(true, "audit W1: amber focus ring is ~1.9:1 on paper");
-  await page.goto("/studio");
-  const weak = (await focusStops(page))
-    .filter((s) => s.outline === "none" || s.width < 2 || contrast(s.outline, s.bg) < 3)
-    .map((s) => `${s.label}: ${s.outline} on ${s.bg}`);
-  expect(weak).toEqual([]);
-});
+for (const path of ["/", "/studio"]) {
+  test(`every focus stop on ${path} has a visible indicator ≥ 3:1 (WCAG 2.4.7 / 1.4.11)`, async ({
+    page,
+    isMobile,
+  }) => {
+    test.skip(isMobile, "no hardware keyboard");
+    await page.goto(path);
+    const stops = await focusStops(page, 40);
+    expect(stops.length).toBeGreaterThan(5);
+    const weak = stops
+      .filter((s) => s.outline === "none" || s.width < 2 || contrast(s.outline, s.bg) < 3)
+      .map((s) => `${s.label}: ${s.outline} on ${s.bg}`);
+    expect(weak).toEqual([]);
+  });
+}
 
 test("result tabs move with arrow keys (APG tabs pattern)", async ({ page, isMobile }) => {
   test.skip(isMobile, "no hardware keyboard");
-  test.fail(true, "audit W5: tabs have no arrow-key navigation or tabpanels");
   await page.goto("/studio");
   await page.getByRole("button", { name: "Invoice photo" }).click();
   await page.getByRole("button", { name: "Restore and read" }).click();
   const compare = page.getByRole("tab", { name: "Compare" });
   await compare.focus();
   await page.keyboard.press("ArrowRight");
-  await expect(page.getByRole("tab", { name: /^Review queue/ })).toBeFocused();
-  await expect(page.getByRole("tabpanel")).toBeVisible();
+  const queue = page.getByRole("tab", { name: /^Review queue/ });
+  await expect(queue).toBeFocused();
+  await expect(queue).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator(`#${await queue.getAttribute("aria-controls")}`)).toBeVisible();
+  await page.keyboard.press("End");
+  await expect(page.getByRole("tab", { name: "Files" })).toBeFocused();
+  await page.keyboard.press("Home");
+  await expect(compare).toBeFocused();
 });
 
 test("run completion is announced in a live region", async ({ page }) => {
-  test.fail(true, "audit W6: completion is silent to screen readers");
   await page.goto("/studio");
   await page.getByRole("button", { name: "Invoice photo" }).click();
   await page.getByRole("button", { name: "Restore and read" }).click();
   await expect(page.getByRole("tab", { name: "Compare" })).toBeVisible();
-  await expect(page.locator('[role="status"], [aria-live="polite"]')).toContainText(/done|finished|ready/i);
+  await expect(page.locator('[role="status"][aria-live="polite"]')).toContainText(/^Done\./);
+  await expect(page.getByRole("heading", { name: "Results" })).toBeFocused();
 });
 
 test("options disclosure exposes aria-expanded", async ({ page }) => {
-  test.fail(true, "audit W7: disclosure has no aria-expanded");
   await page.goto("/studio");
   const toggle = page.getByRole("button", { name: /options/i });
-  await expect(toggle).toHaveAttribute("aria-expanded", /true|false/);
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await expect(page.getByLabel("OCR engine")).toBeHidden();
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+  await expect(page.getByLabel("OCR engine")).toBeVisible();
 });

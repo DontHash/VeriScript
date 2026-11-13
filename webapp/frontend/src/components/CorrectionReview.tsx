@@ -1,4 +1,5 @@
 import { createMemo, createSignal, For, Show } from "solid-js";
+import { announce } from "../lib/announce";
 import { flagMeta } from "../lib/flags";
 import type { QueueItem, Suggestion } from "../lib/types";
 import { type StudioState } from "../lib/studio-state";
@@ -60,6 +61,7 @@ export function CorrectionReview(props: { state: StudioState }) {
         corrected: row.text,
         action: "confirmed",
       });
+      announce(`Kept ${row.text}.`);
       move(1);
       return;
     }
@@ -71,6 +73,7 @@ export function CorrectionReview(props: { state: StudioState }) {
       corrected: text && text !== row.text ? text : row.text,
       action: text && text !== row.text ? "changed" : "confirmed",
     });
+    announce(text && text !== row.text ? `Changed ${row.text} to ${text}.` : `Kept ${row.text}.`);
     move(1);
   };
 
@@ -85,6 +88,7 @@ export function CorrectionReview(props: { state: StudioState }) {
       corrected: row.alt_text,
       action: "changed",
     });
+    announce(`Changed ${row.text} to ${row.alt_text}.`);
     move(1);
   };
 
@@ -102,6 +106,7 @@ export function CorrectionReview(props: { state: StudioState }) {
       suggested: suggestion.text,
       suggestion_source: suggestion.source,
     });
+    announce(`Changed ${row.text} to ${suggestion.text}.`);
     move(1);
   };
 
@@ -133,6 +138,7 @@ export function CorrectionReview(props: { state: StudioState }) {
         action,
       });
     }
+    announce(`Staged ${corrected} for ${targets.length} identical tokens.`);
     move(1);
   };
 
@@ -152,6 +158,7 @@ export function CorrectionReview(props: { state: StudioState }) {
           · {rows().length} still in the queue
         </span>
         <button
+          type="button"
           class="btn btn--primary btn--small"
           disabled={!pendingCount() || s.correcting()}
           onClick={() => void s.applyCorrections()}
@@ -165,6 +172,7 @@ export function CorrectionReview(props: { state: StudioState }) {
           Local correction memory is on: suggestions come from your own previous
           fixes and never leave this machine.{" "}
           <button
+            type="button"
             class="btn btn--ghost btn--small"
             disabled={s.correcting()}
             onClick={() => void s.clearMemory()}
@@ -229,7 +237,8 @@ export function CorrectionReview(props: { state: StudioState }) {
                       id={key === null ? undefined : `review-input-${key}`}
                       class="review__input"
                       value={draftText(row)}
-                      aria-label={`corrected reading of ${row.text}`}
+                      aria-label={`Corrected reading of ${row.text}`}
+                      aria-describedby={key === null ? undefined : `review-meta-${key}`}
                       onInput={(e) => {
                         if (key === null) return;
                         const value = e.currentTarget.value;
@@ -256,24 +265,30 @@ export function CorrectionReview(props: { state: StudioState }) {
                     <For each={row.suggestions ?? []}>
                       {(suggestion) => (
                         <button
+                          type="button"
                           class="btn btn--ghost btn--small"
                           title={suggestion.why ?? ""}
                           onClick={() => useSuggestion(row, suggestion)}
                         >
-                          → {suggestion.text}
+                          <span aria-hidden="true">→ </span>
+                          <span class="visually-hidden">Use suggestion </span>
+                          {suggestion.text}
                         </button>
                       )}
                     </For>
                     <Show when={row.alt_text}>
                       <button
+                        type="button"
                         class="btn btn--ghost btn--small"
                         onClick={() => useAlternative(row)}
                       >
-                        Use alternative
+                        Use alternative{" "}
+                        <span class="deva">{row.alt_text}</span>
                       </button>
                     </Show>
                     <Show when={identicalFor(row).length > 0}>
                       <button
+                        type="button"
                         class="btn btn--ghost btn--small"
                         title="stage the same reading for every identical token"
                         onClick={() => applyToIdentical(row)}
@@ -282,27 +297,34 @@ export function CorrectionReview(props: { state: StudioState }) {
                       </button>
                     </Show>
                     <button
+                      type="button"
                       class="btn btn--ghost btn--small"
+                      aria-label={`Keep ${row.text}`}
                       onClick={() => stage(row, "confirmed")}
                     >
                       Keep
                     </button>
                     <Show when={isStaged(row) && key !== null}>
                       <button
+                        type="button"
                         class="btn btn--ghost btn--small"
-                        onClick={() => s.unstageCorrection(key!)}
+                        aria-label={`Undo the change to ${row.text}`}
+                        onClick={() => {
+                          s.unstageCorrection(key!);
+                          announce(`Undid the change to ${row.text}.`);
+                        }}
                       >
                         Undo
                       </button>
                     </Show>
                   </div>
-                  <div class="review__meta">
+                  <div class="review__meta" id={key === null ? undefined : `review-meta-${key}`}>
                     <For each={row.flags}>
                       {(flag) => {
                         const meta = flagMeta(flag);
                         return (
                           <span class={`flag flag--${meta.tone}`}>
-                            <span class="flag__dot" />
+                            <span class="flag__dot" aria-hidden="true" />
                             {meta.label}
                           </span>
                         );
@@ -369,6 +391,7 @@ export function CorrectionReview(props: { state: StudioState }) {
           </For>
           <div class="results__actions">
             <button
+              type="button"
               class="btn btn--ghost btn--small"
               disabled={s.correcting()}
               onClick={() => void s.exportCorrections(shared())}

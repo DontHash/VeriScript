@@ -1,6 +1,7 @@
 import { createEffect } from "solid-js";
 import { Route, Router, useLocation } from "@solidjs/router";
 import { Footer } from "./components/Footer";
+import { liveMessage } from "./lib/announce";
 import { TopBar } from "./components/TopBar";
 import { Landing } from "./routes/Landing";
 import { Studio } from "./routes/Studio";
@@ -21,6 +22,9 @@ function Layout(props: { children?: unknown }) {
       <TopBar />
       <main id="main">{props.children as never}</main>
       <Footer />
+      <div class="visually-hidden" role="status" aria-live="polite" aria-atomic="true">
+        {liveMessage()}
+      </div>
     </>
   );
 }

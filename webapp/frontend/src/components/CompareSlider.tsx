@@ -17,18 +17,25 @@ export function CompareSlider(props: {
   const [pos, setPos] = createSignal(props.initial ?? 50);
   const [dragging, setDragging] = createSignal(false);
   let surface: HTMLDivElement | undefined;
+  let handle: HTMLDivElement | undefined;
 
   const clamp = (v: number) => Math.min(100, Math.max(0, v));
+
+  const update = (next: number) => {
+    const value = clamp(next);
+    setPos(value);
+    props.onPositionChange?.(value);
+  };
 
   const setFromClientX = (clientX: number) => {
     if (!surface) return;
     const rect = surface.getBoundingClientRect();
-    const next = clamp(((clientX - rect.left) / rect.width) * 100);
-    setPos(next);
-    props.onPositionChange?.(next);
+    update(((clientX - rect.left) / rect.width) * 100);
   };
 
   const onPointerDown = (e: PointerEvent) => {
+    // Pointer users get the same keyboard-operable handle focused.
+    handle?.focus({ preventScroll: true });
     setDragging(true);
     surface?.setPointerCapture(e.pointerId);
     setFromClientX(e.clientX);
@@ -42,20 +49,27 @@ export function CompareSlider(props: {
   };
 
   const onKeyDown = (e: KeyboardEvent) => {
-    const step = e.shiftKey ? 10 : 2;
-    if (e.key === "ArrowLeft") {
-      setPos((p) => clamp(p - step));
-      e.preventDefault();
-    } else if (e.key === "ArrowRight") {
-      setPos((p) => clamp(p + step));
-      e.preventDefault();
-    } else if (e.key === "Home") {
-      setPos(0);
-      e.preventDefault();
-    } else if (e.key === "End") {
-      setPos(100);
-      e.preventDefault();
-    }
+    const step = e.shiftKey ? 10 : 5;
+    const moves: Record<string, number> = {
+      ArrowLeft: pos() - step,
+      ArrowDown: pos() - step,
+      ArrowRight: pos() + step,
+      ArrowUp: pos() + step,
+      PageDown: pos() - 25,
+      PageUp: pos() + 25,
+      Home: 0,
+      End: 100,
+    };
+    if (!(e.key in moves)) return;
+    e.preventDefault();
+    update(moves[e.key]);
+  };
+
+  const valueText = () => {
+    const shown = Math.round(pos());
+    const before = props.beforeLabel ?? "before";
+    const after = props.afterLabel ?? "after";
+    return `${shown}% ${before}, ${100 - shown}% ${after}`;
   };
 
   onMount(() => {
@@ -91,14 +105,17 @@ export function CompareSlider(props: {
         </div>
 
         <div
+          ref={handle}
           class="compare__handle"
           style={{ left: `${pos()}%` }}
           role="slider"
           tabindex={0}
-          aria-label="Compare input and output"
+          aria-label={`Compare ${props.alt}: before and after`}
+          aria-orientation="horizontal"
           aria-valuemin={0}
           aria-valuemax={100}
           aria-valuenow={Math.round(pos())}
+          aria-valuetext={valueText()}
           onKeyDown={onKeyDown}
         >
           <span class="compare__grip" aria-hidden="true" />

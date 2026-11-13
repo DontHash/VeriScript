@@ -1,15 +1,35 @@
-import { createMemo, For, Show, createSignal } from "solid-js";
+import { createMemo, createSignal, For, onMount, Show } from "solid-js";
 import { CodeBlock } from "./CodeBlock";
 import { CompareSlider } from "./CompareSlider";
 import { CorrectionReview } from "./CorrectionReview";
+import { TabPanel, Tabs } from "./Tabs";
 import { type StudioState } from "../lib/studio-state";
+import type { RunFiles } from "../lib/types";
 
 type Tab = "compare" | "queue" | "transcript" | "files";
+
+/** Every downloadable artifact of a run, in display order. */
+const DOWNLOADS: { key: keyof RunFiles; name: string; what: string }[] = [
+  { key: "pdf", name: "searchable.pdf", what: "Searchable PDF" },
+  { key: "combined_pdf", name: "combined.pdf", what: "Searchable PDF, all pages" },
+  { key: "restored", name: "restored.png", what: "Cleaned page image" },
+  { key: "overlay", name: "overlay.png", what: "Review overlay image" },
+  { key: "txt", name: "transcript.txt", what: "Plain-text transcript" },
+  { key: "combined_txt", name: "combined.txt", what: "Plain-text transcript, all pages" },
+  { key: "md", name: "transcript.md", what: "Markdown transcript" },
+  { key: "combined_md", name: "combined.md", what: "Markdown transcript, all pages" },
+  { key: "json", name: "ocr.json", what: "OCR data: tokens, flags and review queue" },
+];
 
 /** Everything a finished run produces, organised in tabs. */
 export function StudioResults(props: { state: StudioState }) {
   const s = props.state;
   const [tab, setTab] = createSignal<Tab>("compare");
+  let heading: HTMLHeadingElement | undefined;
+
+  // A finished run replaces the idle stage: move focus to its heading so
+  // keyboard and screen-reader users start reading at the results.
+  onMount(() => heading?.focus());
 
   const afterUrl = createMemo(() => {
     const p = s.result();
@@ -17,44 +37,47 @@ export function StudioResults(props: { state: StudioState }) {
     return s.showBoxes() && p.files.overlay ? p.files.overlay : p.files.restored;
   });
 
-  const tabs = createMemo<[Tab, string][]>(() => {
+  const tabs = createMemo(() => {
     const n = s.result()?.review.length ?? 0;
     return [
-      ["compare", "Compare"],
-      ["queue", `Review queue (${n})`],
-      ["transcript", "Transcript"],
-      ["files", "Files"],
+      { id: "compare" as const, label: "Compare" },
+      { id: "queue" as const, label: `Review queue (${n})` },
+      { id: "transcript" as const, label: "Transcript" },
+      { id: "files" as const, label: "Files" },
     ];
   });
 
   return (
     <Show when={s.result()}>
       {(result) => (
-        <div class="results__panel">
-          <div class="stats">
+        <section class="results__panel" aria-labelledby="results-heading">
+          <h2 class="h3" id="results-heading" tabindex={-1} ref={heading}>
+            Results
+          </h2>
+          <dl class="stats">
             <div>
-              <div class="stat__label">Time</div>
-              <div class="stat__value">{result().meta.seconds.toFixed(1)}s</div>
+              <dt class="stat__label">Time</dt>
+              <dd class="stat__value">{result().meta.seconds.toFixed(1)} s</dd>
             </div>
             <div>
-              <div class="stat__label">Tokens</div>
-              <div class="stat__value">{result().meta.n_tokens}</div>
+              <dt class="stat__label">Tokens</dt>
+              <dd class="stat__value">{result().meta.n_tokens}</dd>
             </div>
             <div>
-              <div class="stat__label">Flagged</div>
-              <div class="stat__value stat__value--accent">{result().meta.flagged}</div>
+              <dt class="stat__label">Flagged</dt>
+              <dd class="stat__value stat__value--accent">{result().meta.flagged}</dd>
             </div>
             <div>
-              <div class="stat__label">Digit conflicts</div>
-              <div class="stat__value">{result().meta.digit_conflicts}</div>
+              <dt class="stat__label">Digit conflicts</dt>
+              <dd class="stat__value">{result().meta.digit_conflicts}</dd>
             </div>
             <Show when={result().meta.pages_processed > 1}>
               <div>
-                <div class="stat__label">Pages</div>
-                <div class="stat__value">{result().meta.pages_processed}</div>
+                <dt class="stat__label">Pages</dt>
+                <dd class="stat__value">{result().meta.pages_processed}</dd>
               </div>
             </Show>
-          </div>
+          </dl>
 
           <Show when={result().meta.resized}>
             <p class="field__hint">
@@ -69,129 +92,94 @@ export function StudioResults(props: { state: StudioState }) {
             </p>
           </Show>
 
-          <div class="tabs" role="tablist">
-            <For each={tabs()}>
-              {([id, label]) => (
-                <button
-                  class="tab"
-                  role="tab"
-                  aria-selected={tab() === id}
-                  onClick={() => setTab(id)}
+          <div>
+            <Tabs
+              label="Result views"
+              idPrefix="result"
+              items={tabs()}
+              selected={tab()}
+              onSelect={setTab}
+            />
+
+            <TabPanel idPrefix="result" id="compare" selected={tab() === "compare"}>
+              <div class="stack-16">
+                <label class="checkbox">
+                  <input
+                    type="checkbox"
+                    checked={s.showBoxes()}
+                    onChange={(e) => s.setShowBoxes(e.currentTarget.checked)}
+                  />
+                  <span>Show the review boxes</span>
+                </label>
+                <Show
+                  when={s.inputUrl()}
+                  fallback={
+                    <div class="result-image">
+                      <img
+                        src={result().files.overlay ?? result().files.restored}
+                        alt="Restored page with review overlay"
+                      />
+                    </div>
+                  }
                 >
-                  {label}
-                </button>
-              )}
-            </For>
-          </div>
-
-          <Show when={tab() === "compare"}>
-            <div class="stack-16">
-              <label class="checkbox">
-                <input
-                  type="checkbox"
-                  checked={s.showBoxes()}
-                  onChange={(e) => s.setShowBoxes(e.currentTarget.checked)}
-                />
-                <span>Show the review boxes</span>
-              </label>
-              <Show
-                when={s.inputUrl()}
-                fallback={
-                  <div class="result-image">
-                    <img
-                      src={result().files.overlay ?? result().files.restored}
-                      alt="Restored page with review overlay"
-                    />
-                  </div>
-                }
-              >
-                <CompareSlider
-                  before={s.inputUrl()!}
-                  after={afterUrl()!}
-                  alt="restored page"
-                  beforeLabel="input"
-                  afterLabel={s.showBoxes() ? "review overlay" : "restored"}
-                />
-              </Show>
-              <p class="field__hint">
-                The overlay is the pipeline's own output: one box per token, coloured by its
-                flag. Alternative readings sit above conflicting digits.
-              </p>
-            </div>
-          </Show>
-
-          <Show when={tab() === "queue"}>
-            <div class="stack-16">
-              <CorrectionReview state={s} />
-              <p class="field__hint">
-                Confirm or fix each queued token; the corrected artifacts and
-                the optional training export appear here. Corrections stay in
-                this run until you download them.
-              </p>
-            </div>
-          </Show>
-
-          <Show when={tab() === "transcript"}>
-            <div class="stack-16">
-              <pre class="transcript">{result().transcript || "— no text —"}</pre>
-              <CodeBlock label="copy transcript" code={result().transcript} />
-            </div>
-          </Show>
-
-          <Show when={tab() === "files"}>
-            <div class="stack-16">
-              <div class="results__actions">
-                <a class="download" href={`${result().files.restored}?download=1`}>
-                  ↓ restored.png
-                </a>
-                <Show when={result().files.overlay}>
-                  <a class="download" href={`${result().files.overlay}?download=1`}>
-                    ↓ overlay.png
-                  </a>
+                  <CompareSlider
+                    before={s.inputUrl()!}
+                    after={afterUrl()!}
+                    alt="restored page"
+                    beforeLabel="input"
+                    afterLabel={s.showBoxes() ? "review overlay" : "restored"}
+                  />
                 </Show>
-                <Show when={result().files.pdf}>
-                  <a class="download" href={`${result().files.pdf}?download=1`}>
-                    ↓ searchable.pdf
-                  </a>
-                </Show>
-                <Show when={result().files.combined_pdf}>
-                  <a class="download" href={`${result().files.combined_pdf}?download=1`}>
-                    ↓ combined.pdf
-                  </a>
-                </Show>
-                <Show when={result().files.txt}>
-                  <a class="download" href={`${result().files.txt}?download=1`}>
-                    ↓ transcript.txt
-                  </a>
-                </Show>
-                <Show when={result().files.md}>
-                  <a class="download" href={`${result().files.md}?download=1`}>
-                    ↓ transcript.md
-                  </a>
-                </Show>
-                <Show when={result().files.combined_txt}>
-                  <a class="download" href={`${result().files.combined_txt}?download=1`}>
-                    ↓ combined.txt
-                  </a>
-                </Show>
-                <Show when={result().files.combined_md}>
-                  <a class="download" href={`${result().files.combined_md}?download=1`}>
-                    ↓ combined.md
-                  </a>
-                </Show>
-                <Show when={result().files.json}>
-                  <a class="download" href={`${result().files.json}?download=1`}>
-                    ↓ ocr.json
-                  </a>
-                </Show>
+                <p class="field__hint">
+                  The overlay is the pipeline's own output: one box per token, coloured by its
+                  flag. Alternative readings sit above conflicting digits.
+                </p>
               </div>
-              <p class="field__hint">
-                Run <span class="mono">{result().run_id}</span> · {result().status_line}. Files
-                are deleted after the retention window.
-              </p>
-            </div>
-          </Show>
-        </div>
+            </TabPanel>
+
+            <TabPanel idPrefix="result" id="queue" selected={tab() === "queue"}>
+              <div class="stack-16">
+                <CorrectionReview state={s} />
+                <p class="field__hint">
+                  Confirm or fix each queued token; the corrected artifacts and
+                  the optional training export appear here. Corrections stay in
+                  this run until you download them.
+                </p>
+              </div>
+            </TabPanel>
+
+            <TabPanel idPrefix="result" id="transcript" selected={tab() === "transcript"}>
+              <div class="stack-16">
+                <pre class="transcript" tabindex={0} aria-label="Transcript text">
+                  {result().transcript || "— no text —"}
+                </pre>
+                <CodeBlock label="transcript" code={result().transcript} />
+              </div>
+            </TabPanel>
+
+            <TabPanel idPrefix="result" id="files" selected={tab() === "files"}>
+              <div class="stack-16">
+                <ul class="downloads" aria-label="Files from this run">
+                  <For each={DOWNLOADS.filter((d) => result().files[d.key])}>
+                    {(d) => (
+                      <li>
+                        <a class="download" href={`${result().files[d.key]}?download=1`} download={d.name}>
+                          <span aria-hidden="true">↓</span>
+                          <span class="download__name">{d.name}</span>
+                          <span class="download__what">{d.what}</span>
+                        </a>
+                      </li>
+                    )}
+                  </For>
+                </ul>
+                <p class="field__hint">
+                  Run <span class="mono">{result().run_id}</span> · {result().status_line}. Files
+                  are deleted after the retention window.
+                </p>
+              </div>
+            </TabPanel>
+          </div>
+        </section>
       )}
     </Show>
   );
