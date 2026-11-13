@@ -1,17 +1,7 @@
-import { createResource, For } from "solid-js";
+import { For, Show } from "solid-js";
 import { CodeBlock } from "../components/CodeBlock";
 import { CompareSlider } from "../components/CompareSlider";
-
-async function fetchLimits() {
-  try {
-    const r = await fetch("/api/health");
-    if (!r.ok) return null;
-    const data = await r.json();
-    return data?.limits ?? null;
-  } catch {
-    return null;
-  }
-}
+import { isLocal, retentionText, useHealth } from "../lib/health";
 
 const EXAMPLES = [
   {
@@ -41,12 +31,15 @@ const EXAMPLES = [
 ];
 
 export function Landing() {
-  const [limits] = createResource(fetchLimits);
+  const health = useHealth();
   const limitText = () => {
-    const pages = limits()?.pages_per_client;
+    const h = health();
+    if (isLocal()) return "No account · runs on this computer · nothing is uploaded";
+    const pages = h?.limits.pages_per_client;
+    const kept = h ? retentionText(h.limits.ttl_minutes) : "60 minutes";
     return pages
-      ? `No account · ${pages} pages a day · files deleted after the demo`
-      : "No account · files deleted after the demo";
+      ? `No account · ${pages} pages a day · uploads deleted after ${kept}`
+      : `No account · uploads deleted after ${kept}`;
   };
 
   return (
@@ -105,12 +98,25 @@ export function Landing() {
       <section class="section slate-section" id="offline">
         <div class="container">
           <div class="section__head">
-            <h2 class="h2">This demo runs here; the product runs on your machine</h2>
-            <p class="lede">
-              The demo processes your page on this server and deletes it after the retention
-              window. The product itself makes no cloud calls, has no telemetry and needs no
-              account.
-            </p>
+            <Show
+              when={isLocal()}
+              fallback={
+                <>
+                  <h2 class="h2">This demo runs here; the product runs on your machine</h2>
+                  <p class="lede">
+                    The demo processes your page on this server and deletes it after the
+                    retention window. The product itself makes no cloud calls, has no telemetry
+                    and needs no account.
+                  </p>
+                </>
+              }
+            >
+              <h2 class="h2">This copy runs on your machine</h2>
+              <p class="lede">
+                Pages are processed on this computer and never uploaded. No cloud calls, no
+                telemetry, no account. The same pipeline is available from the command line:
+              </p>
+            </Show>
           </div>
 
           <CodeBlock

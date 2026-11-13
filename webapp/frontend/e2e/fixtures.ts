@@ -89,8 +89,12 @@ export const RUN: RunPayload = {
 };
 
 /** Mock the backend. `restore` decides how POST /api/restore answers. */
-export async function mockApi(page: Page, restore: "ok" | "error" = "ok") {
-  await page.route("**/api/health", (r) => r.fulfill({ json: HEALTH }));
+export async function mockApi(
+  page: Page,
+  restore: "ok" | "error" = "ok",
+  mode: "demo" | "local" = "demo",
+) {
+  await page.route("**/api/health", (r) => r.fulfill({ json: { ...HEALTH, mode } }));
   await page.route("**/api/restore", (r) =>
     restore === "ok"
       ? r.fulfill({ json: RUN })

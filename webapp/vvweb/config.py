@@ -21,6 +21,24 @@ def _env_int(name: str, default: int) -> int:
 class Settings:
     """All runtime knobs in one place. Env-first; safe defaults."""
 
+    # "demo" (hosted, shared, quotas on) or "local" (one person on their own
+    # machine, e.g. inside the desktop app). Only changes what the UI says;
+    # limits stay env-driven so each deployment sets them explicitly.
+    mode: str = field(default_factory=lambda: (
+        "local" if str(branding.env("WEB_MODE", "demo")).strip().lower() == "local"
+        else "demo"))
+
+    # Desktop shell: a per-launch secret. When set, every request must carry
+    # it (session cookie or X-VeriScript-Token header), so other programs on
+    # the machine cannot drive this server. See security.DesktopSessionMiddleware.
+    desktop_token: str | None = field(
+        default_factory=lambda: branding.env("WEB_DESKTOP_TOKEN") or None)
+
+    # Where run artifacts live (default: webapp/runs). The desktop app points
+    # this at the user's app-data folder.
+    runs_dir: str | None = field(
+        default_factory=lambda: branding.env("WEB_RUNS_DIR") or None)
+
     host: str = field(default_factory=lambda: branding.env("WEB_HOST", "127.0.0.1"))
     port: int = field(default_factory=lambda: _env_int("WEB_PORT", 8000))
 

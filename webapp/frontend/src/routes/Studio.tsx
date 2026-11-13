@@ -4,6 +4,7 @@ import { VideoScanner } from "../components/VideoScanner";
 import { StudioPanel } from "../components/StudioPanel";
 import { StudioResults } from "../components/StudioResults";
 import { createStudioState } from "../lib/studio-state";
+import { isLocal } from "../lib/health";
 
 export function Studio() {
   const studio = createStudioState();
@@ -15,8 +16,18 @@ export function Studio() {
         <div class="studio__head">
           <h1 class="h2">Restore a page, or capture a book</h1>
           <p class="lede">
-            Photos, PDFs and page-turning videos. Processing happens on the server running this
-            studio; the app itself is built to run offline, on your machine.
+            <Show
+              when={isLocal()}
+              fallback={
+                <>
+                  Photos, PDFs and page-turning videos. This demo processes pages on its server;
+                  the app itself runs offline, on your machine.
+                </>
+              }
+            >
+              Photos, PDFs and page-turning videos. Everything is processed on this computer;
+              nothing is uploaded.
+            </Show>
           </p>
         </div>
 

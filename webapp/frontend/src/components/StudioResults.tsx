@@ -3,6 +3,7 @@ import { CodeBlock } from "./CodeBlock";
 import { CompareSlider } from "./CompareSlider";
 import { CorrectionReview } from "./CorrectionReview";
 import { TabPanel, Tabs } from "./Tabs";
+import { retentionText } from "../lib/health";
 import { type StudioState } from "../lib/studio-state";
 import type { RunFiles } from "../lib/types";
 
@@ -174,7 +175,7 @@ export function StudioResults(props: { state: StudioState }) {
                 </ul>
                 <p class="field__hint">
                   Run <span class="mono">{result().run_id}</span> · {result().status_line}. Files
-                  are deleted after the retention window.
+                  are kept for {retentionText(Math.round(result().expires_in / 60))}, then deleted.
                 </p>
               </div>
             </TabPanel>

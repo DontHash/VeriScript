@@ -24,8 +24,8 @@ from .config import settings
 from .compression import SelectiveGZipMiddleware
 from .pipeline import (PAGE_CAP, PipelineError, collect_run_summary,
                        process_page)
-from .security import (DailyKeyedQuota, DailyQuota, RateLimiter,
-                       SecurityHeadersMiddleware, client_key,
+from .security import (DailyKeyedQuota, DailyQuota, DesktopSessionMiddleware,
+                       RateLimiter, SecurityHeadersMiddleware, client_key,
                        http_exception_handler, new_run_id, require_auth,
                        validate_upload)
 from .storage import PUBLIC_FILES, RunStore
@@ -37,7 +37,7 @@ _LOG = get_logger("web")
 HERE = os.path.dirname(os.path.abspath(__file__))
 WEBAPP_DIR = os.path.dirname(HERE)
 FRONTEND_DIST = os.path.join(WEBAPP_DIR, "frontend", "dist")
-RUNS_DIR = os.path.join(WEBAPP_DIR, "runs")
+RUNS_DIR = settings.runs_dir or os.path.join(WEBAPP_DIR, "runs")
 
 MAX_LANG = {"en", "ne", "hi"}
 OCR_BACKENDS = {"auto", "rapidocr", "tesseract"}
@@ -224,6 +224,10 @@ def create_app() -> FastAPI:
                   docs_url=None, redoc_url=None, openapi_url=None,
                   lifespan=_lifespan)
 
+    # Starlette runs the last-added middleware first: the session gate sits
+    # inside the security headers, so its 403s carry them too.
+    if settings.desktop_token:
+        app.add_middleware(DesktopSessionMiddleware, token=settings.desktop_token)
     app.add_middleware(SecurityHeadersMiddleware)
     app.add_middleware(SelectiveGZipMiddleware, minimum_size=1024,
                        compresslevel=6)
@@ -235,6 +239,7 @@ def create_app() -> FastAPI:
         return {
             "ok": True,
             "version": VERSION,
+            "mode": settings.mode,
             "busy": _busy(),
             "limits": {
                 "max_upload_mb": settings.max_upload_mb,

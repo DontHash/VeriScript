@@ -2,7 +2,8 @@
  *  page, so the product behaves identically wherever it is embedded. */
 import { createMemo, createSignal, onCleanup } from "solid-js";
 import { announce } from "./announce";
-import { clearMemory as clearMemoryApi, correctRun, exportRunCorrections, fetchHealth, runRestore } from "./api";
+import { clearMemory as clearMemoryApi, correctRun, exportRunCorrections, runRestore } from "./api";
+import { retentionText, useHealth } from "./health";
 import type {
   CorrectionInput,
   CorrectionStats,
@@ -31,7 +32,7 @@ export function createStudioState() {
   const [result, setResult] = createSignal<RunPayload | null>(null);
   const [error, setError] = createSignal<string | null>(null);
   const [elapsed, setElapsed] = createSignal(0);
-  const [health, setHealth] = createSignal<Health | null>(null);
+  const health = useHealth();
   const [inputUrl, setInputUrl] = createSignal<string | null>(null);
   const [showBoxes, setShowBoxes] = createSignal(true);
   const [corrections, setCorrections] = createSignal<CorrectionInput[]>([]);
@@ -62,10 +63,6 @@ export function createStudioState() {
   };
 
   let timer: number | undefined;
-
-  void fetchHealth()
-    .then(setHealth)
-    .catch(() => setHealth(null));
 
   onCleanup(() => {
     if (timer) window.clearInterval(timer);
@@ -282,6 +279,7 @@ export const EXAMPLE_FILES = [
 ];
 
 export function limitsLine(health: Health | null): string {
-  if (!health) return "≤ 12 MB · first page of PDFs · 60-min retention";
-  return `≤ ${health.limits.max_upload_mb} MB · up to ${health.limits.max_pages} PDF pages · ${health.limits.ttl_minutes}-min retention`;
+  if (!health) return "Up to 12 MB · first page of PDFs · results kept 60 minutes";
+  const { max_upload_mb, max_pages, ttl_minutes } = health.limits;
+  return `Up to ${max_upload_mb} MB · up to ${max_pages} PDF pages · results kept ${retentionText(ttl_minutes)}`;
 }

@@ -1,3 +1,6 @@
+import { Show } from "solid-js";
+import { isLocal } from "../lib/health";
+
 export function Footer() {
   return (
     <footer class="footer">
@@ -52,8 +55,12 @@ export function Footer() {
 
       <div class="container footer__meta">
         <p class="footer__note">
-          This demo deletes every upload after its retention window. The offline guarantee belongs
-          to the local app.
+          <Show
+            when={isLocal()}
+            fallback="This demo deletes every upload after its retention window. The offline guarantee belongs to the local app."
+          >
+            Running locally: your pages stay on this computer.
+          </Show>
         </p>
       </div>
     </footer>

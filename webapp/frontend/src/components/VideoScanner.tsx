@@ -1,6 +1,7 @@
-import { createMemo, createSignal, For, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 import { announce } from "../lib/announce";
-import { fetchHealth, formatBytes } from "../lib/api";
+import { formatBytes } from "../lib/api";
+import { isLocal, useHealth } from "../lib/health";
 
 interface CapturePage {
   id: number;
@@ -40,10 +41,14 @@ export function VideoScanner() {
   const busy = () => phase() !== "idle";
   const selected = createMemo(() => order().filter((id) => !excluded().includes(id)));
   const pages = createMemo(() => new Map(capture()?.pages.map((p) => [p.id, p]) || []));
-  void fetchHealth().then((h) => setLimits({
-    mb: h.limits.video_upload_mb, pages: h.limits.video_max_pages,
-    seconds: h.limits.video_max_seconds, ocr: h.limits.pages_per_client,
-  })).catch(() => {});
+  const health = useHealth();
+  createEffect(() => {
+    const h = health();
+    if (h) setLimits({
+      mb: h.limits.video_upload_mb, pages: h.limits.video_max_pages,
+      seconds: h.limits.video_max_seconds, ocr: h.limits.pages_per_client,
+    });
+  });
 
   const invalidate = () => setPdf(null);
   const chooseFile = (next: File | null) => {
@@ -124,7 +129,7 @@ export function VideoScanner() {
       </button>
       <Show when={file()}>{(f) => <span class="field__hint">{f().name} · {formatBytes(f().size)}</span>}</Show>
       <span class="field__hint" id="video-limits">Up to {limits().mb} MB · {limits().seconds / 60} minutes · {limits().pages} captured pages.
-        Processing happens on the server running this studio.</span>
+        {isLocal() ? "Processing happens on this computer." : "This demo processes videos on its server."}</span>
     </div>
     <div class="field">
       <label class="field__label" for="video-layout">Pages visible in the video</label>
@@ -182,7 +187,8 @@ export function VideoScanner() {
             onChange={(e) => { setLang(e.currentTarget.value); invalidate(); }}>
             <option value="en">English</option><option value="ne">Nepali</option><option value="hi">Hindi</option>
           </select>
-          <p class="field__hint">The current OCR allowance is {limits().ocr || "unlimited"} pages per visitor per day.
+          <p class="field__hint">
+            <Show when={limits().ocr}>The current OCR allowance is {limits().ocr} pages per visitor per day. </Show>
             A full book can take several minutes (~4–8 s per page). The clean image PDF preserves the captures without OCR.</p>
         </div>
       </Show>

@@ -116,6 +116,8 @@ export interface ExportResponse {
 export interface Health {
   ok: boolean;
   version: string;
+  /** "local": runs on this computer (desktop app); "demo": shared server */
+  mode?: "local" | "demo";
   busy: boolean;
   limits: {
     max_upload_mb: number;
