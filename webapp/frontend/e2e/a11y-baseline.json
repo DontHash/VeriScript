@@ -1,0 +1,28 @@
+{
+  "landing": [
+    "label-content-name-mismatch"
+  ],
+  "result-compare": [
+    "label"
+  ],
+  "result-files": [
+    "label"
+  ],
+  "result-review-queue": [
+    "label"
+  ],
+  "result-transcript": [
+    "label",
+    "label-content-name-mismatch"
+  ],
+  "studio-error": [
+    "label"
+  ],
+  "studio-idle": [
+    "label",
+    "label-content-name-mismatch"
+  ],
+  "studio-video": [
+    "label"
+  ]
+}

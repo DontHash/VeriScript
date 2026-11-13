@@ -55,11 +55,50 @@ jobs:
           node-version: "22"
           cache: npm
           cache-dependency-path: webapp/frontend/package-lock.json
-      - name: Build the studio
+      - name: Typecheck and build the studio
         working-directory: webapp/frontend
         run: |
           npm ci
           npm run build
+
+      # Accessibility gate (docs/UX_A11Y_AUDIT.md): axe + keyboard checks on
+      # every studio state, API mocked. Ratchet baseline: e2e/a11y-baseline.json.
+      - name: Install Chromium for Playwright
+        working-directory: webapp/frontend
+        run: npx playwright install --with-deps chromium
+
+      - name: Accessibility and keyboard smoke tests
+        working-directory: webapp/frontend
+        run: npm run test:e2e
+
+      - name: Upload the Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: webapp/frontend/playwright-report
+          retention-days: 14
+
+  mobile:
+    name: android app analyzes and tests (a11y guidelines included)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.44.9"
+          channel: stable
+          cache: true
+
+      - name: Analyze and test
+        run: |
+          flutter pub get
+          flutter analyze
+          flutter test
 
   docker:
     name: web image builds and answers
