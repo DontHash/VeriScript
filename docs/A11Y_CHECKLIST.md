@@ -58,3 +58,4 @@ digit → export a PDF. Record the time taken and any point where you had to loo
 | Date | Version | Platform | Tester | Result | Notes / issues filed |
 |------|---------|----------|--------|--------|----------------------|
 | 2026-11-13 | 0.1.0 | Web + Android | automated baseline only | 8 web states and 1 Android screen carry known debt | No manual pass yet. Debt recorded in the baselines. |
+| 2026-11-13 | 0.1.0 | Web + Desktop + Android | automated gates after Phases 1–5 | Web: 50 Playwright checks pass and the axe baseline is empty (light and dark). Android: 47 tests pass and knownDebt is empty. Tokens: all 20 contrast pairs pass | Manual NVDA and TalkBack pass is still to do. |

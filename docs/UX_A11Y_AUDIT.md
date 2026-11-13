@@ -206,3 +206,13 @@ Phase 0 → Phase 1 (fastest user-visible win, low risk) → Phase 2 and Phase 3
 | 3 · Workflow (Android) | Done | Welcome screen before the first camera prompt (A8), Undo instead of a confirm dialog for delete, with 20 s when TalkBack is on (A9), capture haptics (A11). |
 | 4 · Tokens and dark mode | Done | `design/tokens.json` → `scripts/build_tokens.py` generates the web palette (`palette.generated.css`) and Flutter `ThemeTokens`. 20 contrast pairs are checked in both palettes, and CI fails if they drop or if the output is stale (X3). The web studio has a dark theme that follows the system, plus an Auto/Light/Dark switch, with axe run in dark mode too (W20). |
 | 4 · Localization | Planned, deliberately not shipped | Nepali and Hindi need a native-speaker review before release. The approach, order and size are in [I18N_PLAN.md](I18N_PLAN.md) (X1). |
+| 5 · Release polish | Done except owner-only steps | Android release signing from `key.properties`, falling back loudly to the debug key. `main.dart` split into main, theme and library (A10). Accessibility statement (`docs/ACCESSIBILITY.md`, plus Settings › Accessibility on Android and a link in the studio footer). Fixed a pre-existing flaky `review_test`. |
+
+### Open items that need the owner
+
+1. **A5 fonts:** approve downloading Mukta SemiBold and Bold (OFL, google/fonts) so Devanagari bold is not synthesized.
+2. **Android upload key:** create the keystore and `android/key.properties` (steps in `mobile/README.md`).
+3. **Desktop installer:** run `desktop/scripts/build_sidecar.py` in a clean virtualenv with at least 3 GB free, build with the release config, test offline on a clean machine, then code-sign.
+4. **Localization:** native-speaker reviewers for Nepali and Hindi ([I18N_PLAN.md](I18N_PLAN.md)).
+5. **Manual screen-reader pass:** NVDA and TalkBack on real devices ([A11Y_CHECKLIST.md](A11Y_CHECKLIST.md)).
+6. **Pipeline stage progress:** a job API for the studio (Phase 3 remainder).
