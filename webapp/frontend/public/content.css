@@ -4,14 +4,6 @@
    ========================================================================== */
 
 @font-face {
-  font-family: "Instrument Serif";
-  src: url("/fonts/instrument-serif-400.woff2") format("woff2");
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-}
-
-@font-face {
   font-family: "Mukta";
   src: url("/fonts/mukta-400.ttf") format("truetype");
   font-weight: 400;
@@ -34,14 +26,14 @@
   --ink: #120e08;
   --ink-2: #443e33;
   --ink-3: #544f45;
-  --line: rgba(22, 18, 12, 0.16);
-  --line-soft: rgba(22, 18, 12, 0.08);
+  --line: #d9d2c2;
+  --line-soft: #e3ddcf;
   --amber: #e8a200;
-  --amber-dark: #c99000;
-  --green: #008a00;
-  --red: #d40000;
+  --amber-dark: #b98200;
+  --green: #007a33;
+  --red: #b3261e;
   --mono: "IBM Plex Mono", "Courier New", monospace;
-  --display: "Instrument Serif", Georgia, "Times New Roman", serif;
+  --display: Georgia, "Iowan Old Style", "Palatino Linotype", "Times New Roman", serif;
   --body: "Mukta", "Nirmala UI", "Noto Sans Devanagari", system-ui, sans-serif;
 }
 
@@ -72,6 +64,11 @@ a:hover {
   color: var(--amber-dark);
 }
 
+code {
+  font-family: var(--mono);
+  font-size: 0.9em;
+}
+
 .wrap {
   max-width: 880px;
   margin: 0 auto;
@@ -95,22 +92,15 @@ a:hover {
 }
 
 .nav__brand {
-  font-family: var(--mono);
-  font-size: 13px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
+  font-family: var(--display);
+  font-size: 22px;
   text-decoration: none;
-}
-
-.nav__brand strong {
-  color: var(--amber-dark);
 }
 
 .nav__links {
   display: flex;
   gap: 18px;
-  font-family: var(--mono);
-  font-size: 13px;
+  font-size: 15px;
 }
 
 .nav__links a {
@@ -127,21 +117,12 @@ a:hover {
   padding: 64px 0 20px;
 }
 
-.kicker {
-  font-family: var(--mono);
-  font-size: 12px;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: var(--ink-3);
-  margin: 0 0 18px;
-}
-
 h1 {
   font-family: var(--display);
   font-weight: 400;
   font-size: clamp(40px, 6vw, 64px);
-  line-height: 1.02;
-  letter-spacing: -0.02em;
+  line-height: 1.06;
+  letter-spacing: normal;
   margin: 0 0 22px;
 }
 
@@ -166,9 +147,9 @@ h1 {
   background: var(--amber);
   color: var(--ink);
   text-decoration: none;
-  font-family: var(--mono);
-  font-size: 14px;
-  padding: 13px 22px;
+  font-family: var(--body);
+  font-size: 15px;
+  padding: 12px 22px;
   border: 1px solid var(--amber-dark);
 }
 
@@ -178,8 +159,7 @@ h1 {
 }
 
 .textlink {
-  font-family: var(--mono);
-  font-size: 13px;
+  font-size: 15px;
   text-decoration: none;
   border-bottom: 1px solid var(--line);
   padding-bottom: 2px;
@@ -200,8 +180,8 @@ figure img {
 }
 
 figcaption {
-  font-family: var(--mono);
-  font-size: 12px;
+  font-size: 13px;
+  line-height: 1.5;
   color: var(--ink-3);
   margin-top: 10px;
 }
@@ -210,7 +190,6 @@ figcaption {
 
 section {
   padding: 36px 0;
-  border-top: 1px solid var(--line-soft);
 }
 
 h2 {
@@ -218,7 +197,7 @@ h2 {
   font-weight: 400;
   font-size: 34px;
   line-height: 1.15;
-  letter-spacing: -0.01em;
+  letter-spacing: normal;
   margin: 0 0 16px;
 }
 
@@ -247,8 +226,7 @@ li {
 
 strong {
   color: var(--ink);
-  font-weight: 400;
-  border-bottom: 1px solid var(--amber);
+  font-weight: 600;
 }
 
 /* ---------------------------------------------------------------- table */
@@ -261,10 +239,7 @@ table {
 }
 
 th {
-  font-family: var(--mono);
-  font-size: 12px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  font-size: 13px;
   color: var(--ink-3);
   text-align: left;
   font-weight: 400;
@@ -287,7 +262,6 @@ td:first-child {
 
 .note {
   background: var(--surface);
-  border: 1px solid var(--line);
   padding: 18px 20px;
   margin: 20px 0;
 }
@@ -300,8 +274,7 @@ td:first-child {
   display: flex;
   gap: 18px;
   flex-wrap: wrap;
-  font-family: var(--mono);
-  font-size: 12px;
+  font-size: 13px;
   color: var(--ink-3);
   margin: 14px 0 0;
 }
@@ -315,9 +288,17 @@ td:first-child {
   vertical-align: baseline;
 }
 
-.legend .green::before { background: var(--green); }
-.legend .amber::before { background: var(--amber); }
-.legend .red::before { background: var(--red); }
+.legend .green::before {
+  background: var(--green);
+}
+
+.legend .amber::before {
+  background: var(--amber);
+}
+
+.legend .red::before {
+  background: var(--red);
+}
 
 /* ---------------------------------------------------------------- faq */
 
@@ -332,8 +313,7 @@ footer.site {
   background: var(--surface);
   margin-top: 40px;
   padding: 28px 0 40px;
-  font-family: var(--mono);
-  font-size: 13px;
+  font-size: 14px;
   color: var(--ink-3);
 }
 
@@ -351,7 +331,13 @@ footer.site p {
 }
 
 @media (max-width: 600px) {
-  body { font-size: 16px; }
-  .hero { padding-top: 40px; }
-  h2 { font-size: 27px; }
+  body {
+    font-size: 16px;
+  }
+  .hero {
+    padding-top: 40px;
+  }
+  h2 {
+    font-size: 27px;
+  }
 }

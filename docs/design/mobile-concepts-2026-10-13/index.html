@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>VeriScript · Light and dark mobile theme</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f6f5f2;color:#20221f;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;line-height:1.55}
+main{max-width:1220px;margin:auto;padding:40px 24px 64px}.eyebrow{font-size:12px;font-weight:700;letter-spacing:.14em;color:#62685f}h1{font-size:clamp(28px,4vw,46px);line-height:1.12;margin:10px 0 14px;letter-spacing:-.035em}h2{font-size:28px;line-height:1.2;margin:4px 0 8px}p{margin:0 0 12px}.intro{max-width:760px;color:#535a51;font-size:17px}
+.recommendation{border-left:4px solid #c48100;background:#fffaf0;padding:16px 20px;margin:24px 0}.recommendation p{margin:0}
+.filters{display:flex;gap:8px;flex-wrap:wrap;margin:24px 0}button,.full-image{min-height:48px;display:inline-flex;align-items:center;justify-content:center;font:inherit;font-size:14px}
+button{border:1px solid #9aa194;border-radius:8px;background:#fff;padding:10px 16px;color:#20221f;cursor:pointer}button[aria-pressed=true]{background:#20221f;color:#fff;border-color:#20221f}button:focus-visible,a:focus-visible{outline:3px solid #2457d6;outline-offset:4px}
+.concept{background:#fff;border:1px solid #d8ddd3;border-radius:12px;overflow:hidden;margin-bottom:28px}.concept-heading{display:flex;justify-content:space-between;gap:24px;align-items:center;padding:24px}.concept-heading p{color:#535a51;margin:0}.full-image{white-space:nowrap;color:#2457d6;text-decoration:underline;text-underline-offset:3px}
+img{width:100%;height:auto;display:block}.swatches{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:16px;padding:24px}.swatch>span{display:block;height:46px;border:1px solid #b8bcb4;border-radius:6px;margin-bottom:8px}.swatch small{display:block;color:#535a51}.swatch code{font-size:14px}.detail{padding:0 24px 16px;font-size:13px;color:#535a51}
+.notes{max-width:900px;padding-top:8px}.notes h2{font-size:23px}.notes ul{padding-left:24px}.notes li{margin-bottom:8px}.footer{border-top:1px solid #d8ddd3;margin-top:28px;padding-top:16px;color:#535a51;font-size:13px}.footer a{color:#2457d6} [hidden]{display:none!important}
+@media(max-width:700px){main{padding:24px 16px 40px}.concept-heading{padding:18px;display:block}.full-image{margin-top:8px}.swatches{padding:18px;grid-template-columns:repeat(2,minmax(0,1fr))}.detail{padding-left:18px}}
+@media print{button{display:none}.concept{break-inside:avoid}main{padding:0}.concept[data-theme][hidden]{display:block!important}}
+</style></head><body><main>
+<header><div class="eyebrow">VERISCRIPT / SELECTED ANDROID THEME</div><h1>One app. Light and dark.</h1>
+<p class="intro">Paper &amp; Ink is the light mode. Night Studio is the dark mode. The final app will share one screen layout and the same features across both appearances. These generated boards are visual references, not working APK screens.</p></header>
+<aside class="recommendation"><p><strong>Selected: Paper &amp; Ink + Night Studio.</strong> Warm paper by day, charcoal by night, with amber actions in both. Plan System, Light, and Dark appearance options; keep captured pages light in either mode.</p></aside>
+<nav class="filters" aria-label="Filter concept boards">
+<button type="button" data-filter="all" aria-pressed="true">Both modes</button><button type="button" data-filter="a" aria-pressed="false">Light · Paper &amp; Ink</button><button type="button" data-filter="c" aria-pressed="false">Dark · Night Studio</button>
+</nav>
+<section aria-label="Mobile design concepts"><article id="a" data-theme="a" class="concept">
+<div class="concept-heading"><div><span class="eyebrow">SELECTED LIGHT MODE</span><h2>Paper &amp; Ink</h2><p>Warm paper, dark ink, and amber actions.</p></div><a class="full-image" href="a-paper-and-ink.png" target="_blank" rel="noopener">Open full image ↗</a></div>
+<a href="a-paper-and-ink.png" target="_blank" rel="noopener" aria-label="Open Paper & Ink concept full size"><img src="a-paper-and-ink.png" alt="Paper & Ink: Android home and book page review concept screens" width="1536" height="1024"></a>
+<div class="swatches"><div class="swatch"><span style="background:#F4F0E6"></span><div><small>background</small><code>#F4F0E6</code></div></div><div class="swatch"><span style="background:#FCFAF4"></span><div><small>surface</small><code>#FCFAF4</code></div></div><div class="swatch"><span style="background:#120E08"></span><div><small>text</small><code>#120E08</code></div></div><div class="swatch"><span style="background:#E8A200"></span><div><small>primary</small><code>#E8A200</code></div></div><div class="swatch"><span style="background:#D9D2C2"></span><div><small>secondary surface</small><code>#D9D2C2</code></div></div></div>
+<p class="detail">Corners: 8dp · Primary button text: <code>#120E08</code></p>
+</article>
+<article id="b" data-archived="true" class="concept" hidden>
+<div class="concept-heading"><div><span class="eyebrow">DIRECTION B</span><h2>Clear Blue</h2><p>Bright, approachable, and focused on quick everyday scanning.</p></div><a class="full-image" href="b-clear-blue.png" target="_blank" rel="noopener">Open full image ↗</a></div>
+<a href="b-clear-blue.png" target="_blank" rel="noopener" aria-label="Open Clear Blue concept full size"><img src="b-clear-blue.png" alt="Clear Blue: Android home and book page review concept screens" width="1536" height="1024"></a>
+<div class="swatches"><div class="swatch"><span style="background:#F3F6FC"></span><div><small>background</small><code>#F3F6FC</code></div></div><div class="swatch"><span style="background:#FFFFFF"></span><div><small>surface</small><code>#FFFFFF</code></div></div><div class="swatch"><span style="background:#17243D"></span><div><small>text</small><code>#17243D</code></div></div><div class="swatch"><span style="background:#2457D6"></span><div><small>primary</small><code>#2457D6</code></div></div><div class="swatch"><span style="background:#DCE7FF"></span><div><small>secondary surface</small><code>#DCE7FF</code></div></div></div>
+<p class="detail">Corners: 16dp · Primary button text: <code>#FFFFFF</code></p>
+</article>
+<article id="c" data-theme="c" class="concept">
+<div class="concept-heading"><div><span class="eyebrow">SELECTED DARK MODE</span><h2>Night Studio</h2><p>Charcoal surfaces, warm-white text, and amber actions.</p></div><a class="full-image" href="c-night-studio.png" target="_blank" rel="noopener">Open full image ↗</a></div>
+<a href="c-night-studio.png" target="_blank" rel="noopener" aria-label="Open Night Studio concept full size"><img src="c-night-studio.png" alt="Night Studio: Android home and book page review concept screens" width="1536" height="1024"></a>
+<div class="swatches"><div class="swatch"><span style="background:#11151B"></span><div><small>background</small><code>#11151B</code></div></div><div class="swatch"><span style="background:#1D2530"></span><div><small>surface</small><code>#1D2530</code></div></div><div class="swatch"><span style="background:#F4F1E8"></span><div><small>text</small><code>#F4F1E8</code></div></div><div class="swatch"><span style="background:#A6B2C3"></span><div><small>secondary text</small><code>#A6B2C3</code></div></div><div class="swatch"><span style="background:#F2B544"></span><div><small>primary</small><code>#F2B544</code></div></div></div>
+<p class="detail">Corners: 12dp · Primary button text: <code>#11151B</code></p>
+</article></section>
+<section class="notes"><h2>Shared mobile design rules</h2>
+<ul><li>Use one layout, typography system, spacing scale, and set of features across light and dark modes. Reconcile the layout and corner differences in these initial boards during detailed screen design.</li>
+<li>Keep scanning, file import, and book-from-video visible from Home. Existing OCR and restoration options remain accessible in each workflow; these boards show representative screens.</li>
+<li>Capture several photos continuously or select multiple gallery images, then review, add/retake, exclude, and reorder pages before converting them into one document. Save capture drafts locally.</li>
+<li>Plan automatic orientation, straightening, and page crop with manual review overrides. Current web auto-rotation is on by default; small-angle deskew is off. Curved-page flattening is not covered.</li>
+<li>Add editable OCR-text DOCX export alongside PDF; image-per-page Word output can preserve appearance. DOCX and batch photo export are planned mobile additions, not implemented web features.</li>
+<li>Book capture offers open-book spreads and single pages. Review split pages in left-to-right order; exclude duplicates and reorder before export.</li>
+<li>Keep Image, Searchable, and Typeset PDF options clear. Preserve the existing OCR correction and document review workflows in the full screen design.</li>
+<li>Use at least 48dp touch targets, labels alongside icons, and safe-area padding. Give page thumbnails a full-screen inspection view.</li>
+<li>Use Mukta for readable English, Nepali, and Hindi text in both modes. Reserve Instrument Serif for suitable Latin display headings in both modes; use Mukta for Devanagari.</li>
+<li>Use flat palette tokens in implementation. Generated artwork may contain subtle shading, illustrative text, and fictional file details; the exact hex values below each board are the source of truth.</li>
+<li>Home, Files, Settings, and local recents are proposed mobile organization. Final screens still require a feature-by-feature check against the web app.</li></ul>
+</section>
+<footer class="footer">Selected 13 October 2026 · AI-generated design art · <a href="README.md">Design brief</a> · <a href="selected-theme.json">Selected theme mapping</a> · <a href="palettes.json">Palette tokens</a> · <a href="generation-prompts.json">Saved generation prompts</a> · <a href="b-clear-blue.png">Earlier Clear Blue exploration</a></footer>
+</main><script>
+document.querySelectorAll('[data-filter]').forEach(button=>button.addEventListener('click',()=>{
+const selected=button.dataset.filter;
+document.querySelectorAll('[data-filter]').forEach(item=>item.setAttribute('aria-pressed',String(item===button)));
+document.querySelectorAll('[data-theme]').forEach(card=>{card.hidden=selected!=='all'&&card.dataset.theme!==selected;});
+}));
+</script></body></html>

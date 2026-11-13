@@ -3,8 +3,9 @@ import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart
 import 'documents.dart';
 
 class OfflineProcessor {
-  OfflineProcessor(this.language);
+  OfflineProcessor(this.language, {this.engine = 'mlkit'});
   final String language;
+  final String engine;
   bool cancelled = false;
   TextRecognizer get recognizer => TextRecognizer(
     script: language == 'en'
@@ -12,16 +13,52 @@ class OfflineProcessor {
         : TextRecognitionScript.devanagiri,
   );
 
+  Future<List<Map<String, dynamic>>> _read(
+    String path,
+    TextRecognizer? reader,
+  ) async {
+    if (engine == 'rapidocr') {
+      final result = await native.invokeListMethod<dynamic>('rapidOcr', {
+        'path': path,
+        'language': language,
+      });
+      return result!
+          .map((row) => Map<String, dynamic>.from(row as Map))
+          .toList();
+    }
+    final result = await reader!.processImage(InputImage.fromFilePath(path));
+    return result.blocks
+        .expand((block) => block.lines)
+        .map(
+          (line) => <String, dynamic>{
+            'text': line.text,
+            'confidence': line.confidence,
+            'angle': line.angle,
+            'bbox': [
+              line.boundingBox.left,
+              line.boundingBox.top,
+              line.boundingBox.width,
+              line.boundingBox.height,
+            ],
+            'backend': 'mlkit',
+          },
+        )
+        .toList();
+  }
+
   Future<void> recognize(
     ScanPage page, {
     bool autoRotate = true,
     bool checkDigits = true,
     void Function(String stage)? onProgress,
   }) async {
-    final reader = recognizer;
+    if (engine != 'mlkit' && engine != 'rapidocr') {
+      throw ArgumentError('Unknown OCR engine: $engine');
+    }
+    final reader = engine == 'mlkit' ? recognizer : null;
     final paths = <String>[];
     try {
-      RecognizedText? best;
+      List<Map<String, dynamic>>? best;
       double bestScore = -1;
       String bestPath = page.path;
       for (final degrees in autoRotate ? [0, 90, 180, 270] : [0]) {
@@ -39,21 +76,21 @@ class OfflineProcessor {
             'degrees': degrees,
           });
         }
-        final result = await reader.processImage(InputImage.fromFilePath(path));
-        final lines = result.blocks.expand((b) => b.lines);
+        final result = await _read(path, reader);
+        final lines = result;
         // ML Kit can read upside-down text. Its reported line angle distinguishes
         // that from truly upright text; rectangle shape alone cannot do so.
         final score = lines.fold<double>(
           0,
           (sum, line) =>
               sum +
-              line.text.runes.length *
+              (line['text'] as String).runes.length *
                   orientationWeight(
-                    line.angle,
-                    line.boundingBox.width,
-                    line.boundingBox.height,
+                    (line['angle'] as num?)?.toDouble(),
+                    (line['bbox'][2] as num).toDouble(),
+                    (line['bbox'][3] as num).toDouble(),
                   ) *
-                  (line.confidence ?? .75),
+                  ((line['confidence'] as num?)?.toDouble() ?? .75),
         );
         if (score > bestScore * 1.12 || best == null) {
           best = result;
@@ -77,20 +114,11 @@ class OfflineProcessor {
         resultWidth = info!['width'];
         resultHeight = info['height'];
       }
-      final resultLines = best!.blocks
-          .expand((b) => b.lines)
+      final resultLines = best!
           .map(
             (l) => <String, dynamic>{
-              'text': l.text,
-              'original': l.text,
-              'confidence': l.confidence,
-              'angle': l.angle,
-              'bbox': [
-                l.boundingBox.left,
-                l.boundingBox.top,
-                l.boundingBox.width,
-                l.boundingBox.height,
-              ],
+              ...l,
+              'original': l['text'],
               'reviewed': false,
             },
           )
@@ -110,12 +138,12 @@ class OfflineProcessor {
           'out': crop,
           'bbox': line['bbox'],
         });
-        final repeat = await reader.processImage(InputImage.fromFilePath(crop));
-        line['digitAlternative'] = repeat.text;
-        line['digitCheck'] = compareDigitReadings(
-          line['original'],
-          repeat.text,
-        );
+        final repeat = (await _read(
+          crop,
+          reader,
+        )).map((l) => l['text']).join('\n');
+        line['digitAlternative'] = repeat;
+        line['digitCheck'] = compareDigitReadings(line['original'], repeat);
         line['digitMethod'] = 'same-engine-enlarged-contrast-crop';
       }
       if (cancelled) throw StateError('Operation cancelled');
@@ -129,7 +157,7 @@ class OfflineProcessor {
       page.recognized = true;
       paths.remove(resultPath);
     } finally {
-      await reader.close();
+      await reader?.close();
       for (final path in paths) {
         final file = File(path);
         if (await file.exists()) await file.delete();

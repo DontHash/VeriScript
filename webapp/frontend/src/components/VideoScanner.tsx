@@ -24,6 +24,7 @@ async function responseJson(res: Response) {
 
 /** Capture first, review physical pages, then run the optional OCR pipeline. */
 export function VideoScanner() {
+  let videoInput: HTMLInputElement | undefined;
   const [file, setFile] = createSignal<File | null>(null);
   const [layout, setLayout] = createSignal("auto");
   const [lang, setLang] = createSignal("en");
@@ -87,15 +88,25 @@ export function VideoScanner() {
   };
 
   return <section class="panel stack-16" aria-label="Video book scanner">
-    <h2 class="h2">Turn pages. Keep recording.</h2>
-    <p>Keep the camera fixed above the book, show all page edges, and pause for 1–2 seconds after each turn.
-      Use good light and keep your hands off the text during the pause. Two-page spreads become separate left and right PDF pages.</p>
-    <p class="field__hint">Capture is experimental. Check every preview against the book before exporting.
-      Curved bindings, hands, glare, fast turns, and similar pages can cause bad crops or missed pages.</p>
+    <h2 class="h3">Turn pages, keep recording</h2>
+    <p>Keep the camera fixed above the book and pause for a second after each page turn. Two-page
+      spreads become separate left and right PDF pages.</p>
+    <p class="field__hint">Capture is experimental. Check every preview before exporting; curved
+      bindings, hands, glare and fast turns can cause bad crops.</p>
     <div class="field">
-      <label class="field__label" for="book-video">Book video</label>
-      <input id="book-video" type="file" accept=".mp4,.mov,.m4v,.avi,.webm" disabled={busy()}
-        onChange={(e) => chooseFile(e.currentTarget.files?.[0] || null)} />
+      <span class="field__label">Book video</span>
+      <input
+        ref={videoInput}
+        id="book-video"
+        class="visually-hidden"
+        type="file"
+        accept=".mp4,.mov,.m4v,.avi,.webm"
+        disabled={busy()}
+        onChange={(e) => chooseFile(e.currentTarget.files?.[0] || null)}
+      />
+      <button class="btn btn--ghost" type="button" disabled={busy()} onClick={() => videoInput?.click()}>
+        Choose a video
+      </button>
       <Show when={file()}>{(f) => <span class="field__hint">{f().name} · {formatBytes(f().size)}</span>}</Show>
       <span class="field__hint">Up to {limits().mb} MB · {limits().seconds / 60} minutes · {limits().pages} captured pages.
         Processing happens on the server running this studio.</span>
@@ -129,7 +140,7 @@ export function VideoScanner() {
               <span>Page {index() + 1} · {page().side} · {page().timestamp.toFixed(1)}s</span>
             </label>
             <For each={page().warnings}>{(w) => <p class="field__hint">{w}</p>}</For>
-            <div class="example-chips">
+            <div class="button-row">
               <button class="btn btn--ghost btn--small" disabled={busy() || index() === 0}
                 aria-label={`Move page ${index() + 1} earlier`} onClick={() => move(id, -1)}>Earlier</button>
               <button class="btn btn--ghost btn--small" disabled={busy() || index() === order().length - 1}

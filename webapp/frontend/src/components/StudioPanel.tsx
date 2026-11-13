@@ -19,8 +19,8 @@ export function StudioPanel(props: { state: StudioState; compact?: boolean }) {
       />
 
       <div class="panel__examples">
-        <span class="eyebrow">or try a real example</span>
-        <div class="example-chips">
+        <p class="field__hint">Or try a real example</p>
+        <div class="button-row">
           <For each={EXAMPLE_FILES}>
             {(ex) => (
               <button
@@ -70,7 +70,7 @@ export function StudioPanel(props: { state: StudioState; compact?: boolean }) {
           disabled={running()}
           onClick={() => s.setAdvancedOpen(!s.advancedOpen())}
         >
-          {s.advancedOpen() ? "hide options" : "more options"}
+          {s.advancedOpen() ? "Hide options" : "More options"}
         </button>
       </div>
 
@@ -118,7 +118,7 @@ export function StudioPanel(props: { state: StudioState; compact?: boolean }) {
 
           <div class="field">
             <span class="field__label">Files to write</span>
-            <div class="example-chips">
+            <div class="button-row">
               <label class="checkbox">
                 <input
                   type="checkbox"
@@ -126,7 +126,7 @@ export function StudioPanel(props: { state: StudioState; compact?: boolean }) {
                   disabled={running()}
                   onChange={(e) => s.setWantOverlay(e.currentTarget.checked)}
                 />
-                <span>overlay</span>
+                <span>Overlay</span>
               </label>
               <label class="checkbox">
                 <input
@@ -135,7 +135,7 @@ export function StudioPanel(props: { state: StudioState; compact?: boolean }) {
                   disabled={running()}
                   onChange={(e) => s.setWantPdf(e.currentTarget.checked)}
                 />
-                <span>searchable PDF</span>
+                <span>Searchable PDF</span>
               </label>
               <label class="checkbox">
                 <input
@@ -144,7 +144,7 @@ export function StudioPanel(props: { state: StudioState; compact?: boolean }) {
                   disabled={running()}
                   onChange={(e) => s.setWantTxt(e.currentTarget.checked)}
                 />
-                <span>transcript</span>
+                <span>Transcript</span>
               </label>
               <label class="checkbox">
                 <input
@@ -153,7 +153,7 @@ export function StudioPanel(props: { state: StudioState; compact?: boolean }) {
                   disabled={running()}
                   onChange={(e) => s.setWantMd(e.currentTarget.checked)}
                 />
-                <span>markdown</span>
+                <span>Markdown</span>
               </label>
             </div>
           </div>
@@ -162,8 +162,8 @@ export function StudioPanel(props: { state: StudioState; compact?: boolean }) {
 
       <Show when={!props.compact}>
         <p class="field__hint">
-          Picking the wrong script lowers accuracy — it is not auto-detected per
-          token. Devanagari models download once on first use, then run offline.
+          The wrong script lowers accuracy; it is not detected per token. Devanagari models
+          download once, then run offline.
         </p>
       </Show>
 
@@ -175,7 +175,7 @@ export function StudioPanel(props: { state: StudioState; compact?: boolean }) {
           onClick={() => void s.start()}
         >
           <Show when={!running()} fallback={<>Reading… {s.elapsed().toFixed(1)}s</>}>
-            Restore &amp; read <span class="arrow">→</span>
+            Restore and read
           </Show>
         </button>
         <Show when={running()}>

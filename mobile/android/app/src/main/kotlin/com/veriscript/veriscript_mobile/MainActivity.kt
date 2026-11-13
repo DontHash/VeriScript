@@ -1,5 +1,6 @@
 package com.veriscript.veriscript_mobile
 
+import com.veriscript.veriscript_mobile.scan.ScanCameraPlugin
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -10,8 +11,10 @@ class MainActivity : FlutterActivity() {
     private val worker = Executors.newSingleThreadExecutor()
     private val cancelled = AtomicBoolean(false)
     private val busy = AtomicBoolean(false)
+    private var rapidOcr: RapidOcr? = null
     override fun configureFlutterEngine(engine: FlutterEngine) {
         super.configureFlutterEngine(engine)
+        engine.plugins.add(ScanCameraPlugin())
         val channel = MethodChannel(engine.dartExecutor.binaryMessenger, "veriscript/offline")
         channel.setMethodCallHandler { call, result ->
             if (call.method == "cancel") {
@@ -24,7 +27,10 @@ class MainActivity : FlutterActivity() {
                 worker.execute {
                     try {
                         val args = call.arguments as? Map<*, *> ?: emptyMap<Any, Any>()
-                        val output = OfflinePages.run(call.method, args, cancelled) { done, total ->
+                        val output = if (call.method == "rapidOcr") {
+                            val reader = rapidOcr ?: RapidOcr(applicationContext).also { rapidOcr = it }
+                            reader.run(args, cancelled)
+                        } else OfflinePages.run(call.method, args, cancelled) { done, total ->
                             runOnUiThread { channel.invokeMethod("progress", mapOf("done" to done, "total" to total)) }
                         }
                         runOnUiThread {
@@ -43,6 +49,7 @@ class MainActivity : FlutterActivity() {
     }
     override fun onDestroy() {
         cancelled.set(true)
+        worker.execute { rapidOcr?.close(); rapidOcr = null }
         worker.shutdown()
         super.onDestroy()
     }

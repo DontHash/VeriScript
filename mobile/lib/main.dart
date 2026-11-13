@@ -6,6 +6,7 @@ import 'documents.dart';
 import 'review.dart';
 import 'copy.dart';
 import 'selection.dart';
+import 'scan/scan_diagnostics_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -711,6 +712,22 @@ class _LibraryScreenState extends State<LibraryScreen> {
       const SizedBox(height: 16),
       SwitchListTile(
         contentPadding: EdgeInsets.zero,
+        title: const Text('Desktop reader (preview)'),
+        subtitle: const Text(
+          'Uses the PC recognition models offline. Can be slower and make different errors. '
+          'Check the result against the page.',
+        ),
+        value: widget.settings.getString('ocrEngine') == 'rapidocr',
+        onChanged: (v) async {
+          await widget.settings.setString(
+            'ocrEngine',
+            v ? 'rapidocr' : 'mlkit',
+          );
+          if (mounted) setState(() {});
+        },
+      ),
+      SwitchListTile(
+        contentPadding: EdgeInsets.zero,
         title: const Text('Automatic alignment'),
         subtitle: const Text('Detect page edges and straighten small tilts.'),
         value: widget.settings.getBool('align') ?? true,
@@ -752,6 +769,20 @@ class _LibraryScreenState extends State<LibraryScreen> {
           await widget.settings.setBool('rotate', v);
           setState(() {});
         },
+      ),
+      ListTile(
+        contentPadding: EdgeInsets.zero,
+        leading: const Icon(Icons.photo_camera_back_outlined),
+        title: const Text('Camera diagnostics'),
+        subtitle: const Text(
+          'Read this device\'s camera capabilities. No photo is taken.',
+        ),
+        trailing: const Icon(Icons.chevron_right),
+        onTap: () => Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (_) => const ScanDiagnosticsScreen(),
+          ),
+        ),
       ),
       const SizedBox(height: 24),
       const Text(

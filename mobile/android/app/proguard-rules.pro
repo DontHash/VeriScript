@@ -1,4 +1,5 @@
 # ML Kit's Flutter plugin references optional scripts in its language switch.
+-keep class ai.onnxruntime.** { *; }
 # Only Latin and Devanagari models are bundled and exposed by this app.
 -dontwarn com.google.mlkit.vision.text.chinese.ChineseTextRecognizerOptions$Builder
 -dontwarn com.google.mlkit.vision.text.chinese.ChineseTextRecognizerOptions

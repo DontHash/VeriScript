@@ -156,7 +156,7 @@ export function CorrectionReview(props: { state: StudioState }) {
           disabled={!pendingCount() || s.correcting()}
           onClick={() => void s.applyCorrections()}
         >
-          {s.correcting() ? "applying…" : `apply corrections (${pendingCount()})`}
+          {s.correcting() ? "Applying…" : `Apply corrections (${pendingCount()})`}
         </button>
       </div>
 
@@ -169,7 +169,7 @@ export function CorrectionReview(props: { state: StudioState }) {
             disabled={s.correcting()}
             onClick={() => void s.clearMemory()}
           >
-            clear memory
+            Clear memory
           </button>
           <Show when={s.memoryCleared() !== null}>
             <span> removed {s.memoryCleared()} records.</span>
@@ -224,10 +224,10 @@ export function CorrectionReview(props: { state: StudioState }) {
                     }
                   >
                   <div class="review__main">
-                    <span class="review__original mono">{row.text}</span>
+                    <span class="review__original">{row.text}</span>
                     <input
                       id={key === null ? undefined : `review-input-${key}`}
-                      class="review__input mono"
+                      class="review__input"
                       value={draftText(row)}
                       aria-label={`corrected reading of ${row.text}`}
                       onInput={(e) => {
@@ -269,7 +269,7 @@ export function CorrectionReview(props: { state: StudioState }) {
                         class="btn btn--ghost btn--small"
                         onClick={() => useAlternative(row)}
                       >
-                        use alternative
+                        Use alternative
                       </button>
                     </Show>
                     <Show when={identicalFor(row).length > 0}>
@@ -278,21 +278,21 @@ export function CorrectionReview(props: { state: StudioState }) {
                         title="stage the same reading for every identical token"
                         onClick={() => applyToIdentical(row)}
                       >
-                        apply to {identicalFor(row).length + 1} identical
+                        Apply to {identicalFor(row).length + 1} identical
                       </button>
                     </Show>
                     <button
                       class="btn btn--ghost btn--small"
                       onClick={() => stage(row, "confirmed")}
                     >
-                      keep
+                      Keep
                     </button>
                     <Show when={isStaged(row) && key !== null}>
                       <button
                         class="btn btn--ghost btn--small"
                         onClick={() => s.unstageCorrection(key!)}
                       >
-                        undo
+                        Undo
                       </button>
                     </Show>
                   </div>
@@ -301,18 +301,18 @@ export function CorrectionReview(props: { state: StudioState }) {
                       {(flag) => {
                         const meta = flagMeta(flag);
                         return (
-                          <span class={`chip chip--${meta.tone}`}>
-                            <span class="chip__dot" />
+                          <span class={`flag flag--${meta.tone}`}>
+                            <span class="flag__dot" />
                             {meta.label}
                           </span>
                         );
                       }}
                     </For>
                     <span class="num">
-                      conf {row.conf === null ? "—" : row.conf.toFixed(1)}
+                      confidence {row.conf === null ? "—" : row.conf.toFixed(1)}
                     </span>
                     <Show when={isStaged(row)}>
-                      <span class="review__done">staged</span>
+                      <span class="review__done">Staged</span>
                     </Show>
                   </div>
                 </div>
@@ -344,9 +344,8 @@ export function CorrectionReview(props: { state: StudioState }) {
         <details class="review__export">
           <summary>Export corrections for training</summary>
           <p class="field__hint">
-            Tick only what you want to share. The archive contains those token
-            crops and their corrected text — no page images — and nothing
-            leaves your machine unless you download it yourself.
+            Choose what to include. The archive contains the token crops and corrected text, with
+            no page images.
           </p>
           <For each={s.corrections()}>
             {(correction) => (
@@ -362,8 +361,8 @@ export function CorrectionReview(props: { state: StudioState }) {
                   }
                 />
                 <span>
-                  <span class="mono">{correction.original || "—"}</span> →{" "}
-                  <span class="mono">{correction.corrected}</span>
+                  <span>{correction.original || "—"}</span> →{" "}
+                  <span>{correction.corrected}</span>
                 </span>
               </label>
             )}
@@ -374,7 +373,7 @@ export function CorrectionReview(props: { state: StudioState }) {
               disabled={s.correcting()}
               onClick={() => void s.exportCorrections(shared())}
             >
-              build corrections.zip ({shared().length} shared)
+              Build corrections.zip ({shared().length} shared)
             </button>
             <Show when={s.exportResult()}>
               {(out) => (

@@ -20,10 +20,10 @@ export function StudioResults(props: { state: StudioState }) {
   const tabs = createMemo<[Tab, string][]>(() => {
     const n = s.result()?.review.length ?? 0;
     return [
-      ["compare", "compare"],
-      ["queue", `review queue (${n})`],
-      ["transcript", "transcript"],
-      ["files", "files"],
+      ["compare", "Compare"],
+      ["queue", `Review queue (${n})`],
+      ["transcript", "Transcript"],
+      ["files", "Files"],
     ];
   });
 
@@ -33,28 +33,24 @@ export function StudioResults(props: { state: StudioState }) {
         <div class="results__panel">
           <div class="stats">
             <div>
-              <div class="stat__label">time</div>
+              <div class="stat__label">Time</div>
               <div class="stat__value">{result().meta.seconds.toFixed(1)}s</div>
             </div>
             <div>
-              <div class="stat__label">engine</div>
-              <div class="stat__value">{result().meta.backend}</div>
-            </div>
-            <div>
-              <div class="stat__label">tokens</div>
+              <div class="stat__label">Tokens</div>
               <div class="stat__value">{result().meta.n_tokens}</div>
             </div>
             <div>
-              <div class="stat__label">flagged</div>
+              <div class="stat__label">Flagged</div>
               <div class="stat__value stat__value--accent">{result().meta.flagged}</div>
             </div>
             <div>
-              <div class="stat__label">digit conflicts</div>
+              <div class="stat__label">Digit conflicts</div>
               <div class="stat__value">{result().meta.digit_conflicts}</div>
             </div>
             <Show when={result().meta.pages_processed > 1}>
               <div>
-                <div class="stat__label">pages</div>
+                <div class="stat__label">Pages</div>
                 <div class="stat__value">{result().meta.pages_processed}</div>
               </div>
             </Show>
@@ -96,14 +92,13 @@ export function StudioResults(props: { state: StudioState }) {
                   checked={s.showBoxes()}
                   onChange={(e) => s.setShowBoxes(e.currentTarget.checked)}
                 />
-                <span>show the review boxes</span>
+                <span>Show the review boxes</span>
               </label>
               <Show
                 when={s.inputUrl()}
                 fallback={
-                  <div class="card card--flush">
+                  <div class="result-image">
                     <img
-                      class="compare__img"
                       src={result().files.overlay ?? result().files.restored}
                       alt="Restored page with review overlay"
                     />
@@ -119,8 +114,8 @@ export function StudioResults(props: { state: StudioState }) {
                 />
               </Show>
               <p class="field__hint">
-                The overlay is the pipeline's own output: a box per token, coloured by the flag.
-                Alternative readings sit above conflicting digits.
+                The overlay is the pipeline's own output: one box per token, coloured by its
+                flag. Alternative readings sit above conflicting digits.
               </p>
             </div>
           </Show>
@@ -191,7 +186,7 @@ export function StudioResults(props: { state: StudioState }) {
                 </Show>
               </div>
               <p class="field__hint">
-                run <span class="mono">{result().run_id}</span> · {result().status_line} · files
+                Run <span class="mono">{result().run_id}</span> · {result().status_line}. Files
                 are deleted after the retention window.
               </p>
             </div>

@@ -1,6 +1,9 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
+import 'capture_quality.dart';
+import 'documents.dart';
 import 'selection.dart';
 
 class CaptureScreen extends StatefulWidget {
@@ -41,20 +44,91 @@ class _CaptureScreenState extends State<CaptureScreen>
         (c) => c.lensDirection == CameraLensDirection.back,
         orElse: () => cameras.first,
       );
-      final controller = CameraController(
-        selected,
-        ResolutionPreset.high,
-        enableAudio: false,
-      );
-      camera = controller;
-      await controller.initialize();
+      final controller = await _openController(selected);
       if (!mounted) {
         await controller.dispose();
         return;
       }
+      if (!widget.recordMode) {
+        try {
+          await controller.setJpegImageQuality(95);
+        } catch (e) {
+          // Some devices/camera versions reject a quality change; the capture
+          // still works, so keep the controller rather than failing the screen.
+          debugPrint('JPEG quality change unavailable: $e');
+        }
+      }
+      camera = controller;
       setState(() => error = null);
     } catch (e) {
       if (mounted) setState(() => error = 'Camera unavailable: $e');
+    }
+  }
+
+  Future<CameraController> _openController(CameraDescription selected) async {
+    // Phase 0 interim fix: photos must not inherit the 720p video preset.
+    // Fall back rather than making the camera unusable if `max` is rejected.
+    final presets = widget.recordMode
+        ? const [ResolutionPreset.high]
+        : const [
+            ResolutionPreset.max,
+            ResolutionPreset.veryHigh,
+            ResolutionPreset.high,
+          ];
+    Object? lastError;
+    for (final preset in presets) {
+      final controller = CameraController(selected, preset, enableAudio: false);
+      try {
+        await controller.initialize();
+        return controller;
+      } on CameraException catch (e) {
+        await controller.dispose();
+        if (e.code == 'CameraAccessDenied' ||
+            e.code == 'CameraAccessDeniedWithoutPrompt') {
+          rethrow;
+        }
+        lastError = e;
+        debugPrint('Camera preset $preset unavailable: $e');
+      } catch (e) {
+        await controller.dispose();
+        lastError = e;
+        debugPrint('Camera preset $preset unavailable: $e');
+      }
+    }
+    throw lastError ?? StateError('Camera could not start.');
+  }
+
+  /// Capture once, validate the JPEG cheaply, and retry once if the camera
+  /// returned a black/empty frame. Returns the path to import.
+  Future<String> _validatedPhotoPath() async {
+    var photo = await camera!.takePicture();
+    var info = await _readInfo(photo.path);
+    if (info != null && !info.isUsable) {
+      debugPrint('Discarding unusable capture: ${info.summary}');
+      try {
+        await File(photo.path).delete();
+      } catch (_) {}
+      photo = await camera!.takePicture();
+      info = await _readInfo(photo.path);
+      if (info != null && !info.isUsable) {
+        throw StateError('The camera returned an unreadable photo. Try again.');
+      }
+    }
+    if (info != null) {
+      debugPrint(
+        'Capture ${info.summary}${info.isLowResolution ? ' (low resolution)' : ''}',
+      );
+    }
+    return photo.path;
+  }
+
+  Future<CaptureInfo?> _readInfo(String path) async {
+    try {
+      return await readCaptureInfo(path);
+    } catch (e) {
+      // Validation is a safety net, not a reason to lose a capture.
+      debugPrint('Could not validate capture: $e');
+      return null;
     }
   }
 
@@ -125,8 +199,8 @@ class _CaptureScreenState extends State<CaptureScreen>
     }
     setState(() => saving = true);
     try {
-      final photo = await camera!.takePicture();
-      await widget.onPhoto!(photo.path);
+      final path = await _validatedPhotoPath();
+      await widget.onPhoto!(path);
       if (mounted) setState(() => added++);
     } catch (e) {
       if (mounted) {

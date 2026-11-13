@@ -301,7 +301,10 @@ class _ReviewScreenState extends State<ReviewScreen> {
   }
 
   Future<void> recognize() async {
-    processor = OfflineProcessor(widget.settings.getString('language') ?? 'ne');
+    processor = OfflineProcessor(
+      widget.settings.getString('language') ?? 'ne',
+      engine: widget.settings.getString('ocrEngine') ?? 'mlkit',
+    );
     final pages = doc.selected.where((p) => !p.recognized).toList();
     for (var i = 0; i < pages.length; i++) {
       checkCancelled();
@@ -481,6 +484,7 @@ class _ReviewScreenState extends State<ReviewScreen> {
           store: widget.store,
           doc: doc,
           language: widget.settings.getString('language') ?? 'ne',
+          engine: widget.settings.getString('ocrEngine') ?? 'mlkit',
           autoRotate: widget.settings.getBool('rotate') ?? true,
           checkDigits: widget.settings.getBool('digits') ?? true,
         ),

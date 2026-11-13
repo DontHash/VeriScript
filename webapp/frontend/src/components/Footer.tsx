@@ -5,14 +5,13 @@ export function Footer() {
         <div class="footer__col">
           <span class="wordmark">VeriScript</span>
           <p class="footer__note">
-            Offline document restoration. Devanagari first, English too. Photo or scan in — cleaned
-            page, searchable PDF, overlay, transcript and OCR JSON out, with every uncertain number
-            on the record.
+            Offline document restoration for Nepali, Hindi and English. Photos and scans in;
+            searchable PDF, transcript and Markdown out, with every uncertain number on the record.
           </p>
         </div>
 
         <div class="footer__col">
-          <span class="eyebrow">Explore</span>
+          <p class="footer__heading">Explore</p>
           <a class="footer__link" href="/#examples">
             Real examples
           </a>
@@ -20,10 +19,10 @@ export function Footer() {
             Runs offline
           </a>
           <a class="footer__link" href="/studio">
-            Try the studio
+            Open the studio
           </a>
           <a class="footer__link" href="/nepali-ocr/">
-            Nepali OCR — offline
+            Nepali OCR
           </a>
           <a
             class="footer__link"
@@ -31,31 +30,30 @@ export function Footer() {
             target="_blank"
             rel="noreferrer noopener"
           >
-            Benchmark — Devanagari head-to-head
+            Benchmark
           </a>
         </div>
 
         <div class="footer__col">
-          <span class="eyebrow">Project</span>
+          <p class="footer__heading">Project</p>
           <a
             class="footer__link"
             href="https://github.com/DontHash/VeriScript"
             target="_blank"
             rel="noreferrer noopener"
           >
-            GitHub — DontHash/VeriScript
+            GitHub repository
           </a>
-          <span class="eyebrow">Docs</span>
-          <span class="footer__link">docs/BENCHMARK.md · docs/EVALUATION.md · docs/DEPLOY.md</span>
-          <span class="footer__link">MIT · third-party models keep their licenses</span>
+          <p class="footer__note">
+            MIT licensed. Third-party models keep their licenses.
+          </p>
         </div>
       </div>
 
       <div class="container footer__meta">
-        <hr class="rule" />
-        <p class="eyebrow footer__note footer__note--top">
-          This demo deletes every upload after its retention window · the offline guarantee belongs
-          to the local app
+        <p class="footer__note">
+          This demo deletes every upload after its retention window. The offline guarantee belongs
+          to the local app.
         </p>
       </div>
     </footer>

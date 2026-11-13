@@ -1,0 +1,48 @@
+[
+  {
+    "key": "a",
+    "name": "Paper & Ink",
+    "file": "a-paper-and-ink.png",
+    "description": "Warm, editorial, and closely related to the current web identity.",
+    "colors": {
+      "background": "#F4F0E6",
+      "surface": "#FCFAF4",
+      "text": "#120E08",
+      "primary": "#E8A200",
+      "secondarySurface": "#D9D2C2"
+    },
+    "radiusDp": 8,
+    "primaryText": "#120E08"
+  },
+  {
+    "key": "b",
+    "name": "Clear Blue",
+    "file": "b-clear-blue.png",
+    "description": "Bright, approachable, and focused on quick everyday scanning.",
+    "colors": {
+      "background": "#F3F6FC",
+      "surface": "#FFFFFF",
+      "text": "#17243D",
+      "primary": "#2457D6",
+      "secondarySurface": "#DCE7FF"
+    },
+    "radiusDp": 16,
+    "primaryText": "#FFFFFF"
+  },
+  {
+    "key": "c",
+    "name": "Night Studio",
+    "file": "c-night-studio.png",
+    "description": "A focused dark workspace where captured pages stand out.",
+    "colors": {
+      "background": "#11151B",
+      "surface": "#1D2530",
+      "text": "#F4F1E8",
+      "secondaryText": "#A6B2C3",
+      "primary": "#F2B544"
+    },
+    "radiusDp": 12,
+    "primaryText": "#11151B"
+  }
+]
+

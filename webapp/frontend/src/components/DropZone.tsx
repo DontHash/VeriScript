@@ -73,9 +73,6 @@ export function DropZone(props: {
             onDragLeave={() => setDragging(false)}
             onDrop={onDrop}
           >
-            <span class="dropzone__icon" aria-hidden="true">
-              ¶
-            </span>
             <span class="dropzone__title">Drop a page here, click to browse, or paste</span>
             <span class="dropzone__hint">png · jpg · webp · tiff · pdf</span>
           </div>

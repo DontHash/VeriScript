@@ -123,6 +123,18 @@ void main() {
           (await SharedPreferences.getInstance()).getString('language'),
           'en',
         );
+        final desktopReader = find.widgetWithText(
+          SwitchListTile,
+          'Desktop reader (preview)',
+        );
+        await tester.ensureVisible(desktopReader);
+        expect(tester.widget<SwitchListTile>(desktopReader).value, isFalse);
+        await tester.tap(desktopReader);
+        await tester.pumpAndSettle();
+        expect(
+          (await SharedPreferences.getInstance()).getString('ocrEngine'),
+          'rapidocr',
+        );
         expect(tester.takeException(), isNull);
       },
     );

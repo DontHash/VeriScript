@@ -4,7 +4,18 @@ import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 
+import 'capture_quality.dart';
+
 const native = MethodChannel('veriscript/offline');
+
+/// Native bounds + luma-sample validation for a just-captured JPEG.
+Future<CaptureInfo> readCaptureInfo(String path) async {
+  final info = await native.invokeMapMethod<String, dynamic>('jpegInfo', {
+    'path': path,
+  });
+  if (info == null) throw StateError('No capture metadata was returned.');
+  return CaptureInfo.fromMap(info);
+}
 
 class ScanPage {
   ScanPage({

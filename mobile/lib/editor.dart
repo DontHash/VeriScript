@@ -10,6 +10,7 @@ class PageEditor extends StatefulWidget {
     required this.store,
     required this.doc,
     this.language = 'ne',
+    this.engine = 'mlkit',
     this.autoRotate = true,
     this.checkDigits = true,
   });
@@ -17,6 +18,7 @@ class PageEditor extends StatefulWidget {
   final DocumentStore store;
   final ScanDocument doc;
   final String language;
+  final String engine;
   final bool autoRotate, checkDigits;
   @override
   State<PageEditor> createState() => _PageEditorState();
@@ -69,7 +71,7 @@ class _PageEditorState extends State<PageEditor> {
       return;
     }
     final before = page.snapshot(), previous = page.previousVersion;
-    final worker = OfflineProcessor(widget.language);
+    final worker = OfflineProcessor(widget.language, engine: widget.engine);
     processor = worker;
     setState(() {
       busy = true;

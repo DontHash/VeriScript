@@ -38,6 +38,52 @@ object OfflinePages {
     private fun save(bitmap: Bitmap, path: String) {
         File(path).outputStream().use { check(bitmap.compress(Bitmap.CompressFormat.JPEG, 95, it)) { "Unable to save page" } }
     }
+    /** Cheap validation for a just-captured photo: dimensions, file size and a
+     * ~512px luma sample. It deliberately does not decode the full image. */
+    private fun jpegInfo(path: String): Map<String, Any> {
+        val file = File(path)
+        require(file.isFile) { "Captured photo is missing" }
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(path, bounds)
+        require(bounds.outWidth > 0 && bounds.outHeight > 0) { "Captured photo is not a valid JPEG" }
+        var sample = 1
+        while (max(bounds.outWidth, bounds.outHeight) / sample > 512) sample *= 2
+        val options = BitmapFactory.Options().apply {
+            inSampleSize = sample
+            inPreferredConfig = Bitmap.Config.ARGB_8888
+        }
+        val bitmap = BitmapFactory.decodeFile(path, options) ?: error("Could not decode captured photo")
+        try {
+            val pixels = IntArray(bitmap.width * bitmap.height)
+            bitmap.getPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
+            var sum = 0.0
+            var dark = 0
+            var bright = 0
+            for (pixel in pixels) {
+                val r = (pixel shr 16) and 0xff
+                val g = (pixel shr 8) and 0xff
+                val b = pixel and 0xff
+                val luma = 0.2126 * r + 0.7152 * g + 0.0722 * b
+                sum += luma
+                if (luma < 8.0) dark++
+                if (luma > 247.0) bright++
+            }
+            val count = pixels.size.coerceAtLeast(1)
+            return mapOf(
+                "path" to path,
+                "width" to bounds.outWidth,
+                "height" to bounds.outHeight,
+                "bytes" to file.length(),
+                "sampleWidth" to bitmap.width,
+                "sampleHeight" to bitmap.height,
+                "meanLuma" to sum / count,
+                "darkFraction" to dark.toDouble() / count,
+                "brightFraction" to bright.toDouble() / count,
+            )
+        } finally {
+            bitmap.recycle()
+        }
+    }
     private fun load(path: String, maxSide: Int = 2500): Bitmap {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeFile(path, bounds)
@@ -394,6 +440,7 @@ object OfflinePages {
         check(cancel)
         when(method) {
             "video" -> return video(arg(args,"path"),arg(args,"out"),arg(args,"layout"),cancel,progress)
+            "jpegInfo" -> return jpegInfo(arg(args,"path"))
             "textPdf" -> { textPdf(arg(args,"out"),arg(args,"title"),(args["pages"] as List<*>).map { it as String },cancel); return null }
             "pdfInfo", "pdfPage" -> {
                 ParcelFileDescriptor.open(File(arg(args,"path")),ParcelFileDescriptor.MODE_READ_ONLY).use { fd ->

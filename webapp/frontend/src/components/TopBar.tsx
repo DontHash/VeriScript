@@ -8,7 +8,7 @@ export function TopBar() {
     <header class="topbar">
       <div class="container topbar__inner">
         <A href="/" class="wordmark" aria-label="VeriScript home">
-          Veri<span>Script</span>
+          VeriScript
         </A>
 
         <nav class="topbar__nav" aria-label="Primary">
@@ -29,8 +29,12 @@ export function TopBar() {
           >
             GitHub
           </a>
-          <A class="btn btn--ghost btn--small" href="/studio" data-active={isStudio()}>
-            Try it
+          <A
+            class="btn btn--ghost btn--small"
+            href="/studio"
+            aria-current={isStudio() ? "page" : undefined}
+          >
+            Open studio
           </A>
         </div>
       </div>

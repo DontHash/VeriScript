@@ -23,7 +23,9 @@ Android 10 (API 29) or newer. ARM64 is the phone build; x86_64 supports emulator
 
 Development APKs use the Android debug signing key. Production signing and physical-phone acceptance remain outstanding.
 
-This build does **not** claim desktop OCR accuracy or full parity. ML Kit replaces the Python OCR engines. The optional Bodhan independent digit verifier, desktop calibration/date validators, learned cross-document correction memory, training-crop export and optional photo AI super-resolution are not ported. Same-engine digit agreement is not independent verification. Desktop document enhancement is classical; the neural photo upscaler is CLI-only. Curved-page dewarping, reliable hand removal and guaranteed page completeness are not implemented.
+This build does **not** claim desktop OCR accuracy or full parity. ML Kit remains the default. Settings → **Desktop reader (preview)** enables the experimental native RapidOCR backend for page and batch recognition; switching it off restores ML Kit. It uses the pinned desktop detector, English/Devanagari recognizers and English orientation classifier through ONNX Runtime. It is a native implementation, not execution of the Python desktop pipeline: DB polygon expansion differs at corners, and desktop layout analysis and the optional PyTorch letterpress reader are not included. The comparison harness selects it through `OfflineProcessor(language, engine: 'rapidocr')`. See [paired measurements](../evals/comparisons/2026-10-17/README.md) before choosing it; sharing models does not guarantee better accuracy or speed.
+
+The optional Bodhan independent digit verifier, desktop calibration/date validators, learned cross-document correction memory, training-crop export and optional photo AI super-resolution are not ported. Same-engine digit agreement is not independent verification. Desktop document enhancement is classical; the neural photo upscaler is CLI-only. Curved-page dewarping, reliable hand removal and guaranteed page completeness are not implemented.
 
 ## Build and verify
 
@@ -31,10 +33,27 @@ Use Flutter 3.44.9, Java 17 and the configured Android SDK/NDK. Set JAVA_HOME, A
 
 ```powershell
 flutter pub get
+python tool/prepare_rapidocr.py
 flutter analyze
 flutter test
 flutter build apk --release --target-platform android-arm64,android-x64 --split-per-abi
 ```
+
+`prepare_rapidocr.py` copies the installed RapidOCR model cache or downloads the pinned artifacts, verifies SHA256, and bundles their license notices. Android builds verify this pack before packaging. The four model files add approximately 40 MB before APK compression; inference needs no network access. Model binaries are ignored by Git.
+
+## Paired OCR comparison
+
+From the repository root:
+
+```powershell
+python -m pip install -r evals/requirements-comparison.txt
+python -m evals.harness.compare_apps prepare
+python -m evals.harness.compare_apps desktop
+python mobile/tool/compare_ocr.py --device emulator-5554
+python -m evals.harness.compare_apps score
+```
+
+Before running the mobile comparison, disconnect Android Wi-Fi/data and enable airplane mode. The runner verifies there is no active default network. It installs a separate `.benchmark` application and clears only that disposable test sandbox on subsequent runs; the main app's document library is preserved. It tests the same image bytes with ML Kit and the experimental native backend. Competitor text exports belong in `build/ocr-comparison/pack/outputs/<app>/<page-id>.txt`, accompanied by `<page-id>.json` containing `image_sha256`, app version, export settings and test conditions. Missing pages or provenance prevent a complete ranking. Keep historical Hindi, synthetic Nepali and English results separate; this six-page smoke pack cannot establish market superiority or phone performance.
 
 Run Flutter commands **sequentially** here. Analysis/tests can regenerate the plugin registrant during release compilation, incorrectly introducing the debug integration-test plugin into release registration.
 

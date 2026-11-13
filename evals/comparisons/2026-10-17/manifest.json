@@ -1,0 +1,83 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "id": "ne_clean",
+      "image": "pages/ne_clean.png",
+      "gt": "gt/ne_clean.txt",
+      "sha256": "5c2e5f2774c937eb4fdc9f843d0e46e5f85de4d2b1a658deec6a20035084c668",
+      "gt_sha256": "6ea97b58a3fe5a0eac8350988745f5d92385c3a1f26a33e4f0442c7a97fd08cf",
+      "lang": "ne",
+      "family": "synthetic",
+      "authority": "exact-rendered-text",
+      "source": "Generated with bundled Mukta OFL font",
+      "width": 1500,
+      "height": 1800
+    },
+    {
+      "id": "ne_shadow",
+      "image": "pages/ne_shadow.png",
+      "gt": "gt/ne_shadow.txt",
+      "sha256": "b329563de3069c4950e05f293a4381aa93be90a856dd41d5a4b52e3e91066f70",
+      "gt_sha256": "6ea97b58a3fe5a0eac8350988745f5d92385c3a1f26a33e4f0442c7a97fd08cf",
+      "lang": "ne",
+      "family": "synthetic",
+      "authority": "exact-rendered-text",
+      "source": "Deterministic shadow/blur of ne_clean",
+      "width": 1500,
+      "height": 1800
+    },
+    {
+      "id": "en_clean",
+      "image": "pages/en_clean.png",
+      "gt": "gt/en_clean.txt",
+      "sha256": "84b413c5a6f0aa5dc8d25b453ec47a19c84077f29251058a7a4a603c325f108d",
+      "gt_sha256": "67ceafb38dc973159428645521581d2fc54593ad44ba4ba14b7d34a80d8675bf",
+      "lang": "en",
+      "family": "synthetic",
+      "authority": "exact-rendered-text",
+      "source": "Generated with bundled Mukta OFL font",
+      "width": 1500,
+      "height": 1800
+    },
+    {
+      "id": "en_rotated",
+      "image": "pages/en_rotated.png",
+      "gt": "gt/en_rotated.txt",
+      "sha256": "11d6ec346bc4968248f124c6c4747a8a71c7a10d0f3d0e7948e29f70d45a4bdc",
+      "gt_sha256": "67ceafb38dc973159428645521581d2fc54593ad44ba4ba14b7d34a80d8675bf",
+      "lang": "en",
+      "family": "synthetic",
+      "authority": "exact-rendered-text",
+      "source": "90-degree rotation of en_clean",
+      "width": 1800,
+      "height": 1500
+    },
+    {
+      "id": "saktidharasukla1930_p01",
+      "image": "pages/saktidharasukla1930_p01.png",
+      "gt": "gt/saktidharasukla1930_p01.txt",
+      "sha256": "daedcda79d099806ba45ec61438e8bdd39ca2221875a7ccf81753f276bf3a757",
+      "gt_sha256": "51223ee2b9e54197e145c2a699ad504b0d14b2112c3d526e1d8d8e18dcfa1ce7",
+      "lang": "ne",
+      "family": "historical-hindi",
+      "authority": "upstream-human-corrected-ALTO",
+      "source": "heiDATA doi:10.11588/data/EGOKEI; CC BY 4.0; held-out book",
+      "width": 2000,
+      "height": 1487
+    },
+    {
+      "id": "simha1914_p000_1",
+      "image": "pages/simha1914_p000_1.png",
+      "gt": "gt/simha1914_p000_1.txt",
+      "sha256": "828b38f537bdc2e2e801abfebadf7f6015206de18fc8c02e1a060e26dd1f0afc",
+      "gt_sha256": "693b87a97bec18ba8b70b748617ca84586d89023e9f0c6de5478f364bc1b7dcf",
+      "lang": "ne",
+      "family": "historical-hindi",
+      "authority": "upstream-human-corrected-ALTO",
+      "source": "heiDATA doi:10.11588/data/EGOKEI; CC BY 4.0; held-out book",
+      "width": 1396,
+      "height": 2000
+    }
+  ]
+}

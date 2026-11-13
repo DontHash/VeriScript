@@ -64,42 +64,48 @@ export function CompareSlider(props: {
     onCleanup(() => window.removeEventListener("pointerup", stop));
   });
 
+  const caption = () => {
+    if (props.beforeLabel && props.afterLabel) {
+      return `${props.beforeLabel} left, ${props.afterLabel} right. Drag to compare.`;
+    }
+    return props.beforeLabel ?? props.afterLabel ?? "";
+  };
+
   return (
-    <div
-      ref={surface}
-      class="compare"
-      data-dragging={dragging()}
-      onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
-      onPointerUp={onPointerUp}
-    >
-      <img class="compare__img" src={props.after} alt={`${props.alt} — restored`} draggable={false} />
+    <figure class="compare-figure">
       <div
-        class="compare__before"
-        style={{ "clip-path": `inset(0 ${100 - pos()}% 0 0)` }}
-        aria-hidden="true"
+        ref={surface}
+        class="compare"
+        data-dragging={dragging()}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
       >
-        <img class="compare__img" src={props.before} alt="" draggable={false} />
+        <img class="compare__img" src={props.after} alt={`${props.alt} — restored`} draggable={false} />
+        <div
+          class="compare__before"
+          style={{ "clip-path": `inset(0 ${100 - pos()}% 0 0)` }}
+          aria-hidden="true"
+        >
+          <img class="compare__img" src={props.before} alt="" draggable={false} />
+        </div>
+
+        <div
+          class="compare__handle"
+          style={{ left: `${pos()}%` }}
+          role="slider"
+          tabindex={0}
+          aria-label="Compare input and output"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={Math.round(pos())}
+          onKeyDown={onKeyDown}
+        >
+          <span class="compare__grip" aria-hidden="true" />
+        </div>
       </div>
 
-      <span class="compare__tag compare__tag--left">{props.beforeLabel ?? "input"}</span>
-      <span class="compare__tag compare__tag--right">{props.afterLabel ?? "overlay"}</span>
-
-      <div
-        class="compare__handle"
-        style={{ left: `${pos()}%` }}
-        role="slider"
-        tabindex={0}
-        aria-label="Compare input and output"
-        aria-valuemin={0}
-        aria-valuemax={100}
-        aria-valuenow={Math.round(pos())}
-        onKeyDown={onKeyDown}
-      >
-        <span class="compare__grip" aria-hidden="true">
-          ↔↕
-        </span>
-      </div>
-    </div>
+      {caption() && <figcaption class="compare__caption">{caption()}</figcaption>}
+    </figure>
   );
 }

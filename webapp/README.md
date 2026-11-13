@@ -6,13 +6,12 @@ action into `/studio`, where the full product runs on one page — drop a file,
 watch the results, download the outputs.
 
 - **Frontend** — SolidJS + TypeScript + Vite, hand-built design system
-  (`src/styles/tokens.css`), three.js only for the studio's empty-state "desk"
-  (lazy-loaded chunk; static fallback for reduced motion / no WebGL).
-- **Type roles** — Instrument Serif for display, **Mukta for reading text**
-  (the font the product itself embeds, so prose and Devanagari share one voice),
-  IBM Plex Mono strictly for machine text (labels, filenames, tokens, numbers).
-  The ink ladder is hard-coded, not alpha — 900 ≈ 17:1, 700 ≈ 9.3:1,
-  500 ≈ 7.1:1 on the paper — so nothing washes out against the grain.
+  (`src/styles/tokens.css`).
+- **Type roles** — a system serif stack (Georgia first) for display, **Mukta for
+  reading text** (the font the product itself embeds, so prose and Devanagari share
+  one voice), IBM Plex Mono strictly for machine text (code, filenames, run ids,
+  tokens). The ink ladder uses solid values, not alpha — 900 ≈ 17:1, 700 ≈ 9.3:1,
+  500 ≈ 7.1:1 on the paper — so text stays crisp on any screen.
 - **Backend** — FastAPI (`vvweb/`) around the repo's own pipeline
   (`veriscript.document.pipeline.run_document_pipeline`). The same pipeline the CLI runs;
   only the delivery is different.

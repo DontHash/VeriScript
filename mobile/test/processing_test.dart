@@ -36,6 +36,29 @@ void main() {
     messenger.setMockMethodCallHandler(channel, null);
     messenger.setMockMethodCallHandler(native, null);
   });
+  test('Native OCR failure preserves reviewed text and image', () async {
+    final page = ScanPage(
+      id: 'a',
+      source: 'source',
+      path: 'image.jpg',
+      recognized: true,
+      lines: [
+        {'text': 'Total 123', 'original': 'Total 128', 'reviewed': true},
+      ],
+    );
+    final before = page.toJson();
+    messenger.setMockMethodCallHandler(native, (call) async {
+      throw PlatformException(code: 'ocr', message: 'Invalid model');
+    });
+    await expectLater(
+      OfflineProcessor(
+        'ne',
+        engine: 'rapidocr',
+      ).recognize(page, autoRotate: false, checkDigits: false),
+      throwsA(isA<PlatformException>()),
+    );
+    expect(page.toJson(), before);
+  });
   test(
     'Cancellation during digit processing leaves reviewed image and text intact',
     () async {
