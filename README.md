@@ -120,6 +120,22 @@ For JS/TS integrations there is a typed HTTP client in
 [`packages/veriscript-client`](packages/veriscript-client) (npm:
 `veriscript-client`; not published yet).
 
+### Desktop app
+
+The same studio in a native window ([desktop/](desktop/README.md), Tauri). It
+starts the local server on a random `127.0.0.1` port with a per-launch secret,
+says "processed on this computer" throughout, and stops the server when the
+window closes. From a checkout:
+
+```bash
+cd webapp/frontend && npm ci && npm run build && cd ../..
+cd desktop && npm ci && npm run dev
+```
+
+Installers (with the server frozen as a sidecar) are built by
+`desktop/scripts/build_sidecar.py` and `npm run build`. See the release
+checklist in [desktop/README.md](desktop/README.md).
+
 ### Outputs (per page)
 
 For an input `page.jpg`, every run writes:
@@ -218,6 +234,8 @@ veriscript/               the product package
   branding.py, logging_setup.py, lexicon.py, calibration.py
 cli.py                    compatibility launcher for `python -m veriscript`
 webapp/                   the studio: FastAPI backend (vvweb/) + SolidJS frontend
+desktop/                  desktop app: Tauri shell around the local studio
+mobile/                   Android app (Flutter, on-device OCR)
 deva_crnn/                training package for the line reader (repo tooling)
 evals/harness/            evaluation harnesses (frozen sets, metrics, gates)
 evals/manifests/          content-hash frozen evaluation sets

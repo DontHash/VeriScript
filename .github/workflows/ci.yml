@@ -79,6 +79,30 @@ jobs:
           path: webapp/frontend/playwright-report
           retention-days: 14
 
+  desktop:
+    name: desktop shell builds and tests (windows)
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: desktop/src-tauri
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rust toolchain
+        run: rustup toolchain install stable --profile minimal --component clippy
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            desktop/src-tauri/target
+          key: desktop-${{ runner.os }}-${{ hashFiles('desktop/src-tauri/Cargo.lock') }}
+
+      - name: Lint and test
+        run: |
+          cargo clippy --locked --all-targets -- -D warnings
+          cargo test --locked
+
   mobile:
     name: android app analyzes and tests (a11y guidelines included)
     runs-on: ubuntu-latest
