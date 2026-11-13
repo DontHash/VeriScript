@@ -16,6 +16,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:veriscript_mobile/documents.dart';
 import 'package:veriscript_mobile/editor.dart';
 import 'package:veriscript_mobile/main.dart';
+import 'package:veriscript_mobile/library.dart' show AccessibilityScreen;
 
 class _Store extends DocumentStore {
   _Store(this.documents) : super(Directory.systemTemp);
@@ -85,6 +86,27 @@ void main() {
         handle.dispose();
       });
     }
+
+    testWidgets('accessibility statement meets a11y guidelines ($theme)', (
+      tester,
+    ) async {
+      final handle = tester.ensureSemantics();
+      tester.view.physicalSize = const Size(360, 800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: studioTheme(dark ? Brightness.dark : Brightness.light),
+          home: const AccessibilityScreen(),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(find.text('Report a problem'), 200);
+      expect(find.text('Report a problem'), findsOneWidget);
+      await checkAll(tester, 'accessibility', theme);
+      handle.dispose();
+    });
 
     testWidgets('crop screen meets a11y guidelines ($theme)', (tester) async {
       final handle = tester.ensureSemantics();

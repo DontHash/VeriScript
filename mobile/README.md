@@ -21,7 +21,7 @@ The digital text-layout PDF renders Devanagari correctly, but Android PDF text e
 
 Android 10 (API 29) or newer. ARM64 is the phone build; x86_64 supports emulator verification. Target 4 GB RAM and 2 GB free space; 6 GB RAM and more storage for long books. These are unmeasured targets, not physical-device certification. Limit 150 pages per document and ten minutes per video, sampled at four frames/second. Photos over 30 megapixels are rejected. Imported originals are kept separately from normalized processing copies.
 
-Development APKs use the Android debug signing key. Production signing and physical-phone acceptance remain outstanding.
+Development APKs use the Android debug signing key. Release builds are signed with your upload key when `android/key.properties` exists (see **Release signing** below); otherwise they fall back to the debug key and Gradle warns. Physical-phone acceptance is still outstanding.
 
 This build does **not** claim desktop OCR accuracy or full parity. ML Kit remains the default. Settings → **Desktop reader (preview)** enables the experimental native RapidOCR backend for page and batch recognition; switching it off restores ML Kit. It uses the pinned desktop detector, English/Devanagari recognizers and English orientation classifier through ONNX Runtime. It is a native implementation, not execution of the Python desktop pipeline: DB polygon expansion differs at corners, and desktop layout analysis and the optional PyTorch letterpress reader are not included. The comparison harness selects it through `OfflineProcessor(language, engine: 'rapidocr')`. See [paired measurements](../evals/comparisons/2026-10-17/README.md) before choosing it; sharing models does not guarantee better accuracy or speed.
 
@@ -40,6 +40,25 @@ flutter build apk --release --target-platform android-arm64,android-x64 --split-
 ```
 
 `prepare_rapidocr.py` copies the installed RapidOCR model cache or downloads the pinned artifacts, verifies SHA256, and bundles their license notices. Android builds verify this pack before packaging. The four model files add approximately 40 MB before APK compression; inference needs no network access. Model binaries are ignored by Git.
+
+## Release signing
+
+Create an upload keystore once and keep it out of the repository (`key.properties`, `*.jks` and `*.keystore` are git-ignored):
+
+```powershell
+keytool -genkey -v -keystore "$env:USERPROFILE\veriscript-upload.jks" -keyalg RSA -keysize 2048 -validity 10000 -alias upload
+```
+
+Then create `android/key.properties`:
+
+```properties
+storeFile=C:/Users/<you>/veriscript-upload.jks
+storePassword=<store password>
+keyAlias=upload
+keyPassword=<key password>
+```
+
+Check that release builds use it with `cd android && ./gradlew :app:signingReport` (Variant `release` should show `Config: release`). Back up the keystore and passwords: Play requires the same upload key for every update. Before a Play release, raise `version:` in `pubspec.yaml`, since `versionCode` comes from the build number after `+`.
 
 ## Paired OCR comparison
 

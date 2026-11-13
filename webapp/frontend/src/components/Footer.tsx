@@ -47,6 +47,14 @@ export function Footer() {
           >
             GitHub repository
           </a>
+          <a
+            class="footer__link"
+            href="https://github.com/DontHash/VeriScript/blob/main/docs/ACCESSIBILITY.md"
+            target="_blank"
+            rel="noreferrer noopener"
+          >
+            Accessibility
+          </a>
           <p class="footer__note">
             MIT licensed. Third-party models keep their licenses.
           </p>
