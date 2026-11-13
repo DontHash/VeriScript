@@ -16,12 +16,19 @@ class ReviewStore extends DocumentStore {
   }
 }
 
+/// Lets real file I/O finish. The editor shows a spinner while it saves, and
+/// a spinner never settles, so wait (in real time, up to 10 s) until it is
+/// gone instead of assuming a fixed delay — that assumption flaked when the
+/// suite ran test files in parallel on a busy machine.
 Future<void> settleDisk(WidgetTester tester) async {
-  for (var i = 0; i < 10; i++) {
+  for (var i = 0; i < 250; i++) {
     await tester.pump();
     await tester.runAsync(
       () => Future<void>.delayed(const Duration(milliseconds: 40)),
     );
+    if (i >= 9 && find.byType(CircularProgressIndicator).evaluate().isEmpty) {
+      break;
+    }
   }
   await tester.pumpAndSettle();
 }
