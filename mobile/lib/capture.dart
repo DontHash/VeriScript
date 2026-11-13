@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'capture_quality.dart';
 import 'documents.dart';
 import 'selection.dart';
@@ -195,6 +196,7 @@ class _CaptureScreenState extends State<CaptureScreen>
       try {
         await camera!.startVideoRecording();
         if (!mounted) return;
+        unawaited(HapticFeedback.mediumImpact());
         setState(() {
           recording = true;
           seconds = 0;
@@ -220,7 +222,10 @@ class _CaptureScreenState extends State<CaptureScreen>
     try {
       final path = await _validatedPhotoPath();
       await widget.onPhoto!(path);
-      if (mounted) setState(() => added++);
+      if (mounted) {
+        unawaited(HapticFeedback.mediumImpact());
+        setState(() => added++);
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

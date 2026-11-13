@@ -53,7 +53,10 @@ void main() {
           ),
         );
         await store.save(book);
-        SharedPreferences.setMockInitialValues({'theme': dark ? 2 : 1});
+        SharedPreferences.setMockInitialValues({
+          'theme': dark ? 2 : 1,
+          'welcomed': true,
+        });
         await tester.pumpWidget(
           VeriScriptApp(
             store: store,
@@ -100,18 +103,24 @@ void main() {
         await tester.tap(find.widgetWithText(FilterChip, 'Study'));
         await tester.pumpAndSettle();
         expect(find.text('Invoice'), findsNothing);
+        // Delete hides the document at once; Undo brings it back untouched.
         await tester.tap(find.byTooltip('Manage Lecture'));
         await tester.pumpAndSettle();
         await tester.tap(find.text('Delete document'));
         await tester.pumpAndSettle();
-        await tester.tap(find.text('Cancel'));
+        expect(find.text('Lecture'), findsNothing);
+        expect(find.text('Deleted “Lecture”.'), findsOneWidget);
+        await tester.tap(find.text('Undo'));
+        await tester.pumpAndSettle();
+        expect(find.text('Lecture'), findsOneWidget);
+        expect(store.documents.any((d) => d.id == book.id), isTrue);
+        // Without Undo, the files are deleted when the snackbar closes.
+        await tester.tap(find.byTooltip('Manage Lecture'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Delete document'));
         await tester.pumpAndSettle();
         expect(store.documents.any((d) => d.id == book.id), isTrue);
-        await tester.tap(find.byTooltip('Manage Lecture'));
-        await tester.pumpAndSettle();
-        await tester.tap(find.text('Delete document'));
-        await tester.pumpAndSettle();
-        await tester.tap(find.text('Delete document'));
+        await tester.pump(const Duration(seconds: 7));
         await tester.pumpAndSettle();
         expect(store.documents.any((d) => d.id == book.id), isFalse);
         expect((await store.list()).single.title, 'Invoice');

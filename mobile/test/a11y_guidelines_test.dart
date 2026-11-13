@@ -63,7 +63,10 @@ void main() {
         tester.view.devicePixelRatio = 1;
         addTearDown(tester.view.resetPhysicalSize);
         addTearDown(tester.view.resetDevicePixelRatio);
-        SharedPreferences.setMockInitialValues({'theme': dark ? 2 : 1});
+        SharedPreferences.setMockInitialValues({
+          'theme': dark ? 2 : 1,
+          'welcomed': true,
+        });
         await tester.pumpWidget(
           VeriScriptApp(
             settings: await SharedPreferences.getInstance(),

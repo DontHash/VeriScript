@@ -7,6 +7,7 @@ import 'review.dart';
 import 'copy.dart';
 import 'selection.dart';
 import 'scan/scan_diagnostics_screen.dart';
+import 'welcome.dart';
 import 'errors.dart';
 
 Future<void> main() async {
@@ -204,11 +205,18 @@ class _VeriScriptAppState extends State<VeriScriptApp> {
     theme: studioTheme(Brightness.light),
     darkTheme: studioTheme(Brightness.dark),
     themeMode: ThemeMode.values[widget.settings.getInt('theme') ?? 0],
-    home: LibraryScreen(
-      store: widget.store,
-      settings: widget.settings,
-      onAppearance: () => setState(() {}),
-    ),
+    home: widget.settings.getBool('welcomed') == true
+        ? LibraryScreen(
+            store: widget.store,
+            settings: widget.settings,
+            onAppearance: () => setState(() {}),
+          )
+        : WelcomeScreen(
+            onDone: () async {
+              await widget.settings.setBool('welcomed', true);
+              if (mounted) setState(() {});
+            },
+          ),
   );
 }
 
@@ -233,6 +241,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
   String query = '';
   String? folder;
   bool managing = false;
+
+  /// Documents removed from view whose Undo window is still open.
+  final pendingDelete = <String>{};
   final searchController = TextEditingController();
   @override
   void dispose() {
@@ -243,8 +254,10 @@ class _LibraryScreenState extends State<LibraryScreen> {
   List<ScanDocument> get visibleDocuments => documents
       .where(
         (doc) =>
+            !pendingDelete.contains(doc.id) &&
             (tab == 0 ||
-            (doc.matches(query) && (folder == null || doc.folder == folder))),
+                (doc.matches(query) &&
+                    (folder == null || doc.folder == folder))),
       )
       .toList();
   @override
@@ -368,39 +381,38 @@ class _LibraryScreenState extends State<LibraryScreen> {
     }
   }
 
+  /// Remove from view now, delete the files only when the Undo window
+  /// closes. If the app is closed first, nothing is lost.
   Future<void> delete(ScanDocument doc) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: Text('Delete “${doc.title}”?'),
-        content: Text(
-          'Permanently remove ${countLabel(doc.pages.length, 'page')}, their saved text, original copies, and exports stored inside this app. '
-          'Files you imported from or shared to other apps will stay. This cannot be undone.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
+    setState(() => pendingDelete.add(doc.id));
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.hideCurrentSnackBar();
+    final reason = await messenger
+        .showSnackBar(
+          SnackBar(
+            content: Text('Deleted “${doc.title}”.'),
+            // Screen-reader users need time to reach Undo (WCAG 2.2.1).
+            duration: Duration(
+              seconds: MediaQuery.accessibleNavigationOf(context) ? 20 : 6,
+            ),
+            // With an action, Flutter keeps a snackbar open by default;
+            // this one must close so the deletion goes ahead.
+            persist: false,
+            action: SnackBarAction(label: 'Undo', onPressed: () {}),
           ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Delete document'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true || !mounted) return;
-    setState(() => managing = true);
+        )
+        .closed;
+    if (reason == SnackBarClosedReason.action) {
+      if (mounted) setState(() => pendingDelete.remove(doc.id));
+      return;
+    }
     try {
       await widget.store.delete(doc);
       await reload();
-      message(
-        'Document deleted. Storage used by this document has been freed.',
-      );
     } catch (e) {
       message(friendlyError(e, 'Could not delete the document. Try again.'));
     } finally {
-      if (mounted) setState(() => managing = false);
+      if (mounted) setState(() => pendingDelete.remove(doc.id));
     }
   }
 
