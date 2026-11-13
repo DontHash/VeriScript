@@ -90,3 +90,45 @@ test.describe("axe", () => {
     });
   }
 });
+
+test.describe("axe in dark mode", () => {
+  test.use({ colorScheme: "dark" });
+
+  test("studio idle (dark)", async ({ page }) => {
+    await mockApi(page);
+    await page.goto("/studio");
+    await expect(page.getByRole("button", { name: "Restore and read" })).toBeVisible();
+    await audit(page, "studio-idle-dark");
+  });
+
+  test("studio results (dark)", async ({ page }) => {
+    await mockApi(page);
+    await runExample(page);
+    await page.getByRole("tab", { name: /^Review queue/ }).click();
+    await expect(page.getByRole("button", { name: /^Keep/ }).first()).toBeVisible();
+    await audit(page, "result-review-queue-dark");
+  });
+
+  test("landing (dark)", async ({ page }) => {
+    await mockApi(page);
+    await page.goto("/");
+    await audit(page, "landing-dark");
+  });
+});
+
+test("the theme switch overrides the system setting and is remembered", async ({ page }) => {
+  await mockApi(page);
+  await page.emulateMedia({ colorScheme: "light" });
+  await page.goto("/studio");
+  const toggle = page.getByRole("button", { name: /^Theme:/ });
+  await expect(toggle).toHaveText("Theme: Auto");
+  await toggle.click(); // Light
+  await toggle.click(); // Dark
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  const bg = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+  expect(bg).toBe("rgb(17, 21, 27)");
+  await page.reload();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  await page.getByRole("button", { name: /^Theme:/ }).click(); // back to Auto
+  await expect(page.locator("html")).not.toHaveAttribute("data-theme", /.+/);
+});

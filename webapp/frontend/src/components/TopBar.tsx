@@ -1,4 +1,6 @@
 import { A, useLocation } from "@solidjs/router";
+import { announce } from "../lib/announce";
+import { cycleTheme, themeChoice, themeLabel } from "../lib/theme";
 
 export function TopBar() {
   const location = useLocation();
@@ -21,6 +23,17 @@ export function TopBar() {
         </nav>
 
         <div class="topbar__actions">
+          <button
+            type="button"
+            class="nav-link topbar__theme"
+            title="Switch between the system theme, light and dark"
+            onClick={() => {
+              cycleTheme();
+              announce(`Theme: ${themeLabel(themeChoice())}`);
+            }}
+          >
+            Theme: {themeLabel(themeChoice())}
+          </button>
           <a
             class="nav-link topbar__gh"
             href="https://github.com/DontHash/VeriScript"

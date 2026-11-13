@@ -7,6 +7,7 @@ import 'review.dart';
 import 'copy.dart';
 import 'selection.dart';
 import 'scan/scan_diagnostics_screen.dart';
+import 'theme_tokens.dart';
 import 'welcome.dart';
 import 'errors.dart';
 
@@ -22,10 +23,12 @@ Future<void> main() async {
 
 ThemeData studioTheme(Brightness brightness) {
   final dark = brightness == Brightness.dark;
-  final background = Color(dark ? 0xff11151b : 0xfff4f0e6);
-  final surface = Color(dark ? 0xff1d2530 : 0xfffcfaf4);
-  final ink = Color(dark ? 0xfff4f1e8 : 0xff120e08);
-  final amber = Color(dark ? 0xfff2b544 : 0xffe8a200);
+  // Shared with the web studio: design/tokens.json → theme_tokens.dart.
+  final t = dark ? ThemeTokens.dark : ThemeTokens.light;
+  final background = t.paper100;
+  final surface = t.paper050;
+  final ink = t.ink900;
+  final amber = t.amber500;
   final generated = ColorScheme.fromSeed(
     seedColor: amber,
     brightness: brightness,
@@ -33,13 +36,13 @@ ThemeData studioTheme(Brightness brightness) {
   final scheme = generated.copyWith(
     surface: surface,
     primary: amber,
-    onPrimary: Color(dark ? 0xff11151b : 0xff120e08),
+    onPrimary: t.onAccent,
     onSurface: ink,
-    surfaceContainerHighest: Color(dark ? 0xff283341 : 0xffe5dfd1),
-    onSurfaceVariant: dark
-        ? const Color(0xffa6b2c3)
-        : generated.onSurfaceVariant,
+    surfaceContainerHighest: t.paper200,
+    onSurfaceVariant: dark ? t.ink500 : generated.onSurfaceVariant,
     surfaceDim: dark ? background : generated.surfaceDim,
+    // Material's in-between container steps for Night Studio. They are
+    // Android-only (the web has no equivalent surfaces), so they stay here.
     surfaceBright: dark ? const Color(0xff303c4b) : generated.surfaceBright,
     surfaceContainerLowest: dark
         ? background
@@ -51,16 +54,14 @@ ThemeData studioTheme(Brightness brightness) {
     surfaceContainerHigh: dark
         ? const Color(0xff242e3b)
         : generated.surfaceContainerHigh,
-    outline: dark ? const Color(0xff78879a) : generated.outline,
-    outlineVariant: dark ? const Color(0xff3e4c5e) : generated.outlineVariant,
+    outline: dark ? t.lineStrong : generated.outline,
+    outlineVariant: dark ? t.line : generated.outlineVariant,
     primaryContainer: dark
         ? const Color(0xff3f321a)
         : generated.primaryContainer,
     onPrimaryContainer: dark ? amber : generated.onPrimaryContainer,
-    secondary: dark ? const Color(0xffa6b2c3) : generated.secondary,
-    secondaryContainer: dark
-        ? const Color(0xff283341)
-        : generated.secondaryContainer,
+    secondary: dark ? t.ink500 : generated.secondary,
+    secondaryContainer: dark ? t.paper200 : generated.secondaryContainer,
     onSecondaryContainer: dark ? ink : generated.onSecondaryContainer,
   );
   final shape = RoundedRectangleBorder(borderRadius: BorderRadius.circular(12));
@@ -106,7 +107,7 @@ ThemeData studioTheme(Brightness brightness) {
     // amber already reads at > 9:1 on its dark background.
     textButtonTheme: TextButtonThemeData(
       style: TextButton.styleFrom(
-        foregroundColor: dark ? amber : const Color(0xff7d5a00),
+        foregroundColor: t.amber800,
         minimumSize: const Size(48, 48),
       ),
     ),

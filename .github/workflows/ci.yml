@@ -45,6 +45,17 @@ jobs:
       - name: Rebuild the report and check for unresolved licenses
         run: python scripts/license_report.py --check --out /tmp/LICENSES.md
 
+  tokens:
+    name: design tokens are current and meet contrast
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Check generated palettes and WCAG contrast pairs
+        run: python scripts/build_tokens.py --check
+
   frontend:
     name: frontend build
     runs-on: ubuntu-latest

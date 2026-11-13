@@ -182,9 +182,15 @@
   line-height: var(--leading-sm);
   min-height: var(--control-h);
   cursor: pointer;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%2316120c' stroke-width='1.5'/%3E%3C/svg%3E");
+  /* chevron drawn in currentColor so it follows the theme */
+  background-image:
+    linear-gradient(45deg, transparent 50%, currentColor 50%),
+    linear-gradient(135deg, currentColor 50%, transparent 50%);
   background-repeat: no-repeat;
-  background-position: right var(--space-3) center;
+  background-size: 6px 6px;
+  background-position:
+    calc(100% - 20px) 50%,
+    calc(100% - 14px) 50%;
   transition: border-color var(--dur-fast) var(--ease-out);
 }
 

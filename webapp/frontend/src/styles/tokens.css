@@ -1,43 +1,12 @@
 /* ==========================================================================
-   Design tokens.
+   Design tokens (roles). Colours come from palette.generated.css.
    Warm paper, one ink ladder, one amber accent. The green/amber/red trio is
    data color for the review queue, never chrome. Solid values only.
    ========================================================================== */
 
 :root {
-  /* paper + ink */
-  --paper-050: #fcfaf4;
-  --paper-100: #f4f0e6;
-  --paper-200: #e7e1d2;
-
-  --ink-900: #120e08;
-  --ink-700: #443e33;
-  --ink-500: #544f45;
-  --ink-400: #7d7668;
-
-  /* rules */
-  --line: #d9d2c2;
-  /* ≥ 3:1 on every paper surface (WCAG 1.4.11 for field and control edges) */
-  --line-strong: #857d6e;
-  --line-soft: #e3ddcf;
-
-  /* slate — the machine surface */
-  --slate-900: #0e0f12;
-  --slate-800: #16181d;
-  --slate-100: #edeae2;
-  --slate-500: #b0a99d;
-  --slate-line: #34363c;
-
-  /* the single accent */
-  --amber-500: #e8a200;
-  --amber-600: #b98200;
-  /* amber for text on paper: ≥ 4.5:1 on paper-050/100/200 */
-  --amber-800: #7d5a00;
-
-  /* data colors — the review queue only */
-  --flag-green: #007a33;
-  --flag-amber: #b98200;
-  --flag-red: #b3261e;
+  /* Colour palette: styles/palette.generated.css (from design/tokens.json,
+     light and dark). Only roles are assigned below. */
 
   /* spacing — 4pt grid, 8pt rhythm */
   --space-1: 4px;
@@ -103,7 +72,7 @@
 
   --accent: var(--amber-500);
   --accent-hover: var(--amber-600);
-  --accent-ink: var(--ink-900);
+  --accent-ink: var(--on-accent);
   --accent-text: var(--amber-800);
 
   --slate-bg: var(--slate-900);

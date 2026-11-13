@@ -49,6 +49,16 @@
   display: none;
 }
 
+/* a <button> styled as a nav link */
+.topbar__theme {
+  appearance: none;
+  background: none;
+  border: 0;
+  cursor: pointer;
+  min-height: var(--control-h);
+  white-space: nowrap;
+}
+
 @media (min-width: 600px) {
   .topbar__gh {
     display: inline-flex;
