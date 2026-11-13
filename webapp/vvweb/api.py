@@ -190,21 +190,30 @@ def _warm_lang() -> Optional[str]:
 def _warm_pipeline() -> None:
     """Load the OCR engine in the background so the first visitor does not pay
     the model warm-up (including the one-time Devanagari model download).
-    Best-effort; failures are non-fatal."""
-    try:
-        import tempfile
+    Best-effort; failures are non-fatal.
 
-        from veriscript.core import data as doc_data
-        from veriscript.document.pipeline import run_document_pipeline
+    The warm-up holds the worker slot like a real run. Initialising the OCR
+    engine while a request uses it crashed the process natively (no Python
+    traceback), so a request made during warm-up now queues behind it and
+    /api/health reports busy until it finishes."""
+    with _worker_sem:
+        _worker_busy.set()
+        try:
+            import tempfile
 
-        page, _gt = doc_data.render_synthetic_invoice(seed=1, dpi=110)
-        with tempfile.TemporaryDirectory(prefix="vv_warm_") as td:
-            run_document_pipeline(page, backend=None, lang=_warm_lang(),
-                                  out_dir=td,
-                                  stem="warm", make_pdf=False, make_overlay=False,
-                                  make_txt=False, make_json=False)
-    except Exception:  # noqa: BLE001 - warm-up only
-        pass
+            from veriscript.core import data as doc_data
+            from veriscript.document.pipeline import run_document_pipeline
+
+            page, _gt = doc_data.render_synthetic_invoice(seed=1, dpi=110)
+            with tempfile.TemporaryDirectory(prefix="vv_warm_") as td:
+                run_document_pipeline(page, backend=None, lang=_warm_lang(),
+                                      out_dir=td,
+                                      stem="warm", make_pdf=False, make_overlay=False,
+                                      make_txt=False, make_json=False)
+        except Exception:  # noqa: BLE001 - warm-up only
+            pass
+        finally:
+            _worker_busy.clear()
 
 
 @asynccontextmanager

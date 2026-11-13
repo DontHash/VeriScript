@@ -92,3 +92,35 @@ def test_health_reports_the_mode():
     res = TestClient(api_mod.create_app()).get("/api/health")
     assert res.status_code == 200
     assert res.json()["mode"] in {"demo", "local"}
+
+
+def test_warm_up_holds_the_worker_slot(monkeypatch):
+    """A request during warm-up must queue, not run OCR concurrently (that
+    crashed the server natively on the first click after launch)."""
+    import threading
+
+    import vvweb.api as api_mod
+    from veriscript.core import data as doc_data
+    from veriscript.document import pipeline as doc_pipeline
+
+    started, release = threading.Event(), threading.Event()
+
+    def fake_pipeline(*_args, **_kwargs):
+        started.set()
+        assert release.wait(10)
+
+    monkeypatch.setattr(doc_data, "render_synthetic_invoice", lambda **_kw: (None, None))
+    monkeypatch.setattr(doc_pipeline, "run_document_pipeline", fake_pipeline)
+
+    worker = threading.Thread(target=api_mod._warm_pipeline)
+    worker.start()
+    try:
+        assert started.wait(10)
+        assert api_mod._worker_busy.is_set()
+        assert not api_mod._worker_sem.acquire(blocking=False)
+    finally:
+        release.set()
+        worker.join(10)
+    assert not api_mod._worker_busy.is_set()
+    assert api_mod._worker_sem.acquire(blocking=False)
+    api_mod._worker_sem.release()
