@@ -11,6 +11,7 @@ import 'processing.dart';
 import 'capture.dart';
 import 'editor.dart';
 import 'copy.dart';
+import 'errors.dart';
 
 class ReviewScreen extends StatefulWidget {
   const ReviewScreen({
@@ -93,14 +94,19 @@ class _ReviewScreenState extends State<ReviewScreen> {
       message(
         cancelled
             ? 'Stopped. Previously saved draft pages are kept.'
-            : e.toString().replaceFirst('Bad state: ', ''),
+            : friendlyError(e, 'That did not finish. Try again.'),
       );
     } finally {
       processor = null;
       try {
         await widget.store.save(doc);
       } catch (e) {
-        message('Draft could not be saved: $e');
+        message(
+          friendlyError(
+            e,
+            'The draft could not be saved. Check free storage, then try again.',
+          ),
+        );
       }
       if (mounted) setState(() => busy = false);
     }
@@ -531,9 +537,12 @@ class _ReviewScreenState extends State<ReviewScreen> {
         ),
       ],
     );
+    // One node for TalkBack: "Edit page 3, <status>" instead of three.
     final preview = Semantics(
       button: true,
-      label: 'Edit page ${index + 1}',
+      label: 'Edit page ${index + 1}, ${pageStatus(page)}',
+      onTap: () => openPage(page),
+      excludeSemantics: true,
       child: InkWell(
         key: ValueKey('preview-${page.id}'),
         onTap: () => openPage(page),
@@ -583,7 +592,7 @@ class _ReviewScreenState extends State<ReviewScreen> {
                 : MainAxisAlignment.end,
             children: [
               Semantics(
-                label: 'Include page ${index + 1}',
+                label: 'Include page ${index + 1} in exports',
                 child: SizedBox(
                   width: 48,
                   height: 48,

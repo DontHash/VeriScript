@@ -191,3 +191,13 @@ Phase 1 is done when all three are empty.
 
 Phase 0 → Phase 1 (fastest user-visible win, low risk) → Phase 2 and Phase 3
 (these can run in parallel because they touch different code) → Phase 4 → Phase 5.
+
+---
+
+## 6. Progress log
+
+| Phase | Status | Notes |
+|-------|--------|-------|
+| 0 · Gates | Done | Playwright + axe, keyboard checks, Flutter guideline tests, CI jobs. |
+| 1 · Accessibility (web) | Done | W1–W12, W21, W22 fixed. The axe baseline and keyboard known-debt lists are empty. |
+| 1 · Accessibility (Android) | Done except A5 | A1 crop without dragging (TalkBack actions + corner picker and arrows), A2 semantics (merged action cards, headings, one node per page card), A3 live regions (capture count/timer, errors, crop position), A4 friendly errors (`lib/errors.dart`), A6 14 sp minimum label, A13 text-button contrast. **A5 is open:** bundling Mukta SemiBold/Bold means downloading the font files (OFL, google/fonts), which needs the owner's approval. |

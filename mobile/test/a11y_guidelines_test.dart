@@ -10,7 +10,6 @@
 // "fixed — remove from knownDebt", so the improvement is locked in.
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:flutter/semantics.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -33,8 +32,8 @@ const guidelines = <String, AccessibilityGuideline>{
 
 /// `screen/theme/guideline` keys that fail today, with the audit item.
 const knownDebt = <String, String>{
-  // Amber "Apply" text button on paper is 1.92:1 (same root cause as web W1).
-  'crop/light/contrast': 'audit W1/A7: amber TextButton on light paper',
+  // Empty: every screen meets the guidelines. Only add an entry with an
+  // audit item, and only for debt that existed before the gate.
 };
 
 Future<void> checkAll(WidgetTester tester, String screen, String theme) async {
@@ -103,28 +102,65 @@ void main() {
     });
   }
 
-  // Audit A1 (WCAG 2.5.7): a corner must be movable without dragging, so
-  // TalkBack and switch-access users can crop. Known debt today: flip the
-  // expectation to `isTrue` when the semantic actions land.
-  testWidgets('crop corners can be moved without dragging (known debt A1)', (
-    tester,
-  ) async {
+  // Audit A1 (WCAG 2.5.7): corners can be moved without dragging, both by
+  // TalkBack custom actions and by the visible corner picker + arrows.
+  testWidgets('crop corners can be moved without dragging', (tester) async {
     final handle = tester.ensureSemantics();
+    tester.view.physicalSize = const Size(360, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
     final page = await _pageWithImage(tester);
-    await tester.pumpWidget(MaterialApp(home: CropScreen(page: page)));
-    await tester.pumpAndSettle();
-    final data = tester
-        .getSemantics(find.bySemanticsLabel(RegExp(r'^Crop corner 1')))
-        .getSemanticsData();
-    final movable =
-        data.hasAction(SemanticsAction.increase) ||
-        data.hasAction(SemanticsAction.decrease) ||
-        (data.customSemanticsActionIds?.isNotEmpty ?? false);
-    expect(
-      movable,
-      isFalse,
-      reason: 'fixed — change this expectation to isTrue (audit A1)',
+    List<List<double>>? applied;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: TextButton(
+              onPressed: () async => applied = await Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => CropScreen(page: page)),
+              ),
+              child: const Text('open'),
+            ),
+          ),
+        ),
+      ),
     );
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+
+    for (var i = 1; i <= 4; i++) {
+      final data = tester
+          .getSemantics(find.bySemanticsLabel(RegExp('^Crop corner $i,')))
+          .getSemanticsData();
+      expect(data.customSemanticsActionIds, hasLength(4), reason: 'corner $i');
+    }
+    expect(
+      tester
+          .getSemantics(find.bySemanticsLabel(RegExp(r'^Crop corner 1,')))
+          .getSemanticsData()
+          .value,
+      '3% across, 3% down',
+    );
+
+    // Pick corner 3 (bottom right) and move it up and left with the arrows.
+    await tester.tap(find.byTooltip('Select the bottom right corner'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Move bottom right corner up'));
+    await tester.tap(find.byTooltip('Move bottom right corner left'));
+    await tester.tap(find.byTooltip('Move bottom right corner left'));
+    await tester.pumpAndSettle();
+    expect(
+      find.text('Corner 3 (bottom right): 95% across, 96% down'),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.text('Apply'));
+    await tester.pumpAndSettle();
+    expect(applied![2][0], closeTo(.95, 1e-9));
+    expect(applied![2][1], closeTo(.96, 1e-9));
+    expect(applied![0], [.03, .03]);
     handle.dispose();
   });
 }

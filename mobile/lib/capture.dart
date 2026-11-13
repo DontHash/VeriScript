@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'capture_quality.dart';
 import 'documents.dart';
 import 'selection.dart';
+import 'errors.dart';
 
 class CaptureScreen extends StatefulWidget {
   const CaptureScreen({
@@ -61,7 +62,15 @@ class _CaptureScreenState extends State<CaptureScreen>
       camera = controller;
       setState(() => error = null);
     } catch (e) {
-      if (mounted) setState(() => error = 'Camera unavailable: $e');
+      if (mounted) {
+        setState(
+          () => error = friendlyError(
+            e,
+            'The camera could not start. Close other camera apps and try '
+            'again, or import images instead.',
+          ),
+        );
+      }
     }
   }
 
@@ -165,7 +174,10 @@ class _CaptureScreenState extends State<CaptureScreen>
     } catch (e) {
       if (mounted) {
         setState(() {
-          error = 'Recording could not be saved: $e';
+          error = friendlyError(
+            e,
+            'The recording could not be saved. Check free storage, then try again.',
+          );
           saving = false;
           recording = false;
         });
@@ -193,7 +205,14 @@ class _CaptureScreenState extends State<CaptureScreen>
           if (seconds >= 600) finishVideo();
         });
       } catch (e) {
-        if (mounted) setState(() => error = e.toString());
+        if (mounted) {
+          setState(
+            () => error = friendlyError(
+              e,
+              'Recording could not start. Try again.',
+            ),
+          );
+        }
       }
       return;
     }
@@ -204,9 +223,13 @@ class _CaptureScreenState extends State<CaptureScreen>
       if (mounted) setState(() => added++);
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(e.toString())));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              friendlyError(e, 'This photo could not be saved. Try again.'),
+            ),
+          ),
+        );
       }
     } finally {
       if (mounted) setState(() => saving = false);
@@ -246,13 +269,20 @@ class _CaptureScreenState extends State<CaptureScreen>
               padding: const EdgeInsets.all(20),
               child: Column(
                 children: [
-                  Text(
-                    widget.recordMode
-                        ? (recording
-                              ? '${seconds ~/ 60}:${(seconds % 60).toString().padLeft(2, '0')} / 10:00'
-                              : 'Hold each spread still for at least one second.\nTurn pages slowly. Video is recorded without sound.')
-                        : 'Take all your photos first. Review them after Done.',
-                    textAlign: TextAlign.center,
+                  // Announced as it changes: recording start, elapsed time
+                  // and the photo count are otherwise silent for TalkBack.
+                  Semantics(
+                    liveRegion: true,
+                    child: Text(
+                      widget.recordMode
+                          ? (recording
+                                ? '${seconds ~/ 60}:${(seconds % 60).toString().padLeft(2, '0')} / 10:00'
+                                : 'Hold each spread still for at least one second.\nTurn pages slowly. Video is recorded without sound.')
+                          : added == 0
+                          ? 'Take all your photos first. Review them after Done.'
+                          : '${widget.count + added} ${widget.count + added == 1 ? 'photo' : 'photos'} taken. Review them after Done.',
+                      textAlign: TextAlign.center,
+                    ),
                   ),
                   const SizedBox(height: 16),
                   SizedBox(

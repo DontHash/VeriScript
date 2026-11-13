@@ -1,7 +1,9 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'documents.dart';
 import 'processing.dart';
+import 'errors.dart';
 
 class PageEditor extends StatefulWidget {
   const PageEditor({
@@ -98,7 +100,10 @@ class _PageEditorState extends State<PageEditor> {
       message(
         worker.cancelled
             ? 'Stopped. Your previous image and text are unchanged.'
-            : '$e',
+            : friendlyError(
+                e,
+                'Recognition failed. Your previous image and text are unchanged. Try again.',
+              ),
       );
     } finally {
       processor = null;
@@ -149,7 +154,12 @@ class _PageEditorState extends State<PageEditor> {
     } catch (e) {
       page.applySnapshot(before);
       page.previousVersion = version;
-      message('$e');
+      message(
+        friendlyError(
+          e,
+          'Could not restore the previous text. Your current text is unchanged.',
+        ),
+      );
     } finally {
       if (mounted) setState(() => busy = false);
     }
@@ -190,9 +200,16 @@ class _PageEditorState extends State<PageEditor> {
       page.applySnapshot(before);
       page.previousVersion = previous;
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(e.toString())));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              friendlyError(
+                e,
+                'The image could not be updated. Your page is unchanged.',
+              ),
+            ),
+          ),
+        );
       }
     } finally {
       if (mounted) setState(() => busy = false);
@@ -269,7 +286,12 @@ class _PageEditorState extends State<PageEditor> {
       } catch (e) {
         line['text'] = oldText;
         line['reviewed'] = oldReviewed;
-        message('Could not save this correction: $e');
+        message(
+          friendlyError(
+            e,
+            'Could not save this correction. The previous text is kept.',
+          ),
+        );
       }
       if (mounted) setState(() {});
     }
@@ -478,94 +500,147 @@ class CropScreen extends StatefulWidget {
   State<CropScreen> createState() => _CropScreenState();
 }
 
+/// Four-corner crop. Corners can be dragged, or moved without dragging
+/// (WCAG 2.5.7): select a corner, then use the arrow buttons, or use the
+/// TalkBack custom actions on each corner ("Move left", …).
 class _CropScreenState extends State<CropScreen> {
+  static const names = ['top left', 'top right', 'bottom right', 'bottom left'];
+
+  /// One arrow press or TalkBack action moves a corner 1% of the page.
+  static const step = .01;
+
   final points = <Offset>[
     const Offset(.03, .03),
     const Offset(.97, .03),
     const Offset(.97, .97),
     const Offset(.03, .97),
   ];
+  int selected = 0;
+
+  String position(int i) =>
+      '${(points[i].dx * 100).round()}% across, '
+      '${(points[i].dy * 100).round()}% down';
+
+  void nudge(int i, double dx, double dy) {
+    setState(() {
+      selected = i;
+      points[i] = Offset(
+        (points[i].dx + dx).clamp(0.0, 1.0),
+        (points[i].dy + dy).clamp(0.0, 1.0),
+      );
+    });
+  }
+
+  Widget arrow(IconData icon, String direction, double dx, double dy) =>
+      IconButton.outlined(
+        tooltip: 'Move ${names[selected]} corner $direction',
+        onPressed: () => nudge(selected, dx, dy),
+        icon: Icon(icon),
+      );
+
   @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(
-      title: const Text('Set four corners'),
-      actions: [
-        TextButton(
-          onPressed: () {
-            Navigator.pop(context, points.map((p) => [p.dx, p.dy]).toList());
-          },
-          child: const Text('Apply'),
-        ),
-      ],
-    ),
-    body: SafeArea(
-      child: Column(
-        children: [
-          const Padding(
-            padding: EdgeInsets.all(20),
-            child: Text(
-              'Drag the corners clockwise: top left, top right, bottom right, bottom left.',
-            ),
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Set four corners'),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context, points.map((p) => [p.dx, p.dy]).toList());
+            },
+            child: const Text('Apply'),
           ),
-          Expanded(
-            child: Center(
-              child: AspectRatio(
-                aspectRatio: widget.page.width / widget.page.height,
-                child: LayoutBuilder(
-                  builder: (_, bounds) => Stack(
-                    clipBehavior: Clip.none,
-                    children: [
-                      Positioned.fill(
-                        child: Image.file(
-                          File(widget.page.path),
-                          fit: BoxFit.fill,
+        ],
+      ),
+      body: SafeArea(
+        child: Column(
+          children: [
+            const Padding(
+              padding: EdgeInsets.fromLTRB(20, 16, 20, 8),
+              child: Text(
+                'Drag the corners clockwise: top left, top right, bottom right, '
+                'bottom left. Or pick a corner and use the arrows.',
+              ),
+            ),
+            Expanded(
+              child: Center(
+                child: AspectRatio(
+                  aspectRatio: widget.page.width / widget.page.height,
+                  child: LayoutBuilder(
+                    builder: (_, bounds) => Stack(
+                      clipBehavior: Clip.none,
+                      children: [
+                        Positioned.fill(
+                          child: Image.file(
+                            File(widget.page.path),
+                            fit: BoxFit.fill,
+                            excludeFromSemantics: true,
+                          ),
                         ),
-                      ),
-                      Positioned.fill(
-                        child: IgnorePointer(
-                          child: CustomPaint(painter: CornerPainter(points)),
+                        Positioned.fill(
+                          child: IgnorePointer(
+                            child: CustomPaint(painter: CornerPainter(points)),
+                          ),
                         ),
-                      ),
-                      for (var i = 0; i < 4; i++)
-                        Positioned(
-                          left: points[i].dx * bounds.maxWidth - 24,
-                          top: points[i].dy * bounds.maxHeight - 24,
-                          child: GestureDetector(
-                            onPanUpdate: (event) => setState(
-                              () => points[i] = Offset(
-                                (points[i].dx +
-                                        event.delta.dx / bounds.maxWidth)
-                                    .clamp(0, 1),
-                                (points[i].dy +
-                                        event.delta.dy / bounds.maxHeight)
-                                    .clamp(0, 1),
-                              ),
-                            ),
+                        for (var i = 0; i < 4; i++)
+                          Positioned(
+                            left: points[i].dx * bounds.maxWidth - 24,
+                            top: points[i].dy * bounds.maxHeight - 24,
                             child: Semantics(
-                              label: 'Crop corner ${i + 1}',
-                              child: Container(
-                                width: 48,
-                                height: 48,
-                                alignment: Alignment.center,
+                              label: 'Crop corner ${i + 1}, ${names[i]}',
+                              value: position(i),
+                              selected: selected == i,
+                              customSemanticsActions: {
+                                const CustomSemanticsAction(
+                                  label: 'Move left',
+                                ): () =>
+                                    nudge(i, -step, 0),
+                                const CustomSemanticsAction(
+                                  label: 'Move right',
+                                ): () =>
+                                    nudge(i, step, 0),
+                                const CustomSemanticsAction(
+                                  label: 'Move up',
+                                ): () =>
+                                    nudge(i, 0, -step),
+                                const CustomSemanticsAction(
+                                  label: 'Move down',
+                                ): () =>
+                                    nudge(i, 0, step),
+                              },
+                              child: GestureDetector(
+                                onTap: () => setState(() => selected = i),
+                                onPanStart: (_) => setState(() => selected = i),
+                                onPanUpdate: (event) => nudge(
+                                  i,
+                                  event.delta.dx / bounds.maxWidth,
+                                  event.delta.dy / bounds.maxHeight,
+                                ),
                                 child: Container(
-                                  width: 24,
-                                  height: 24,
-                                  decoration: BoxDecoration(
-                                    color: Theme.of(
-                                      context,
-                                    ).colorScheme.primary,
-                                    border: Border.all(
-                                      color: Colors.black,
-                                      width: 2,
-                                    ),
-                                    shape: BoxShape.circle,
-                                  ),
-                                  child: Center(
-                                    child: Text(
-                                      '${i + 1}',
-                                      style: const TextStyle(
+                                  width: 48,
+                                  height: 48,
+                                  alignment: Alignment.center,
+                                  child: Container(
+                                    width: selected == i ? 30 : 26,
+                                    height: selected == i ? 30 : 26,
+                                    decoration: BoxDecoration(
+                                      color: scheme.primary,
+                                      border: Border.all(
                                         color: Colors.black,
-                                        fontSize: 12,
+                                        width: selected == i ? 3 : 2,
+                                      ),
+                                      shape: BoxShape.circle,
+                                    ),
+                                    child: Center(
+                                      child: ExcludeSemantics(
+                                        child: Text(
+                                          '${i + 1}',
+                                          style: const TextStyle(
+                                            color: Colors.black,
+                                            fontSize: 14,
+                                          ),
+                                        ),
                                       ),
                                     ),
                                   ),
@@ -573,18 +648,60 @@ class _CropScreenState extends State<CropScreen> {
                               ),
                             ),
                           ),
-                        ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
               ),
             ),
-          ),
-          const SizedBox(height: 32),
-        ],
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+              child: Column(
+                children: [
+                  SegmentedButton<int>(
+                    showSelectedIcon: false,
+                    segments: [
+                      for (var i = 0; i < 4; i++)
+                        ButtonSegment(
+                          value: i,
+                          label: Text('${i + 1}'),
+                          tooltip: 'Select the ${names[i]} corner',
+                        ),
+                    ],
+                    selected: {selected},
+                    onSelectionChanged: (value) =>
+                        setState(() => selected = value.first),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      arrow(Icons.arrow_back, 'left', -step, 0),
+                      const SizedBox(width: 8),
+                      arrow(Icons.arrow_upward, 'up', 0, -step),
+                      const SizedBox(width: 8),
+                      arrow(Icons.arrow_downward, 'down', 0, step),
+                      const SizedBox(width: 8),
+                      arrow(Icons.arrow_forward, 'right', step, 0),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Semantics(
+                    liveRegion: true,
+                    child: Text(
+                      'Corner ${selected + 1} (${names[selected]}): '
+                      '${position(selected)}',
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
-    ),
-  );
+    );
+  }
 }
 
 class CornerPainter extends CustomPainter {

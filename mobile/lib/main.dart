@@ -7,6 +7,7 @@ import 'review.dart';
 import 'copy.dart';
 import 'selection.dart';
 import 'scan/scan_diagnostics_screen.dart';
+import 'errors.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -97,6 +98,15 @@ ThemeData studioTheme(Brightness brightness) {
       style: FilledButton.styleFrom(
         minimumSize: const Size(48, 52),
         shape: shape,
+      ),
+    ),
+    // Text buttons sit on the page background, where bright amber is only
+    // 1.9:1 in Paper & Ink. Use the deep amber there (5.5:1); Night Studio's
+    // amber already reads at > 9:1 on its dark background.
+    textButtonTheme: TextButtonThemeData(
+      style: TextButton.styleFrom(
+        foregroundColor: dark ? amber : const Color(0xff7d5a00),
+        minimumSize: const Size(48, 48),
       ),
     ),
     outlinedButtonTheme: OutlinedButtonThemeData(
@@ -253,7 +263,14 @@ class _LibraryScreenState extends State<LibraryScreen> {
         });
       }
     } catch (e) {
-      if (mounted) setState(() => error = '$e');
+      if (mounted) {
+        setState(
+          () => error = friendlyError(
+            e,
+            'Your documents could not be loaded. Close and reopen the app.',
+          ),
+        );
+      }
     }
   }
 
@@ -345,7 +362,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
       message(selected.isEmpty ? 'Moved to Unfiled.' : 'Moved to $selected.');
     } catch (e) {
       doc.folder = previous;
-      message('Could not move document: $e');
+      message(friendlyError(e, 'Could not move the document. Try again.'));
     } finally {
       if (mounted) setState(() => managing = false);
     }
@@ -381,7 +398,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
         'Document deleted. Storage used by this document has been freed.',
       );
     } catch (e) {
-      message('Could not delete document: $e');
+      message(friendlyError(e, 'Could not delete the document. Try again.'));
     } finally {
       if (mounted) setState(() => managing = false);
     }
@@ -394,44 +411,49 @@ class _LibraryScreenState extends State<LibraryScreen> {
     final foreground = primary ? scheme.onPrimary : scheme.onSurface;
     return Padding(
       padding: EdgeInsets.only(bottom: dark ? 16 : 12),
-      child: Card(
-        color: primary ? scheme.primary : null,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(12),
-          onTap: () => create(kind),
-          child: Padding(
-            padding: const EdgeInsets.all(20),
-            child: Row(
-              children: [
-                Icon(icon, size: 30, color: foreground),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        title,
-                        style: TextStyle(
-                          fontSize: 21,
-                          fontWeight: FontWeight.w600,
-                          color: foreground,
-                        ),
+      child: MergeSemantics(
+        child: Semantics(
+          button: true,
+          child: Card(
+            color: primary ? scheme.primary : null,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(12),
+              onTap: () => create(kind),
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: Row(
+                  children: [
+                    Icon(icon, size: 30, color: foreground),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            title,
+                            style: TextStyle(
+                              fontSize: 21,
+                              fontWeight: FontWeight.w600,
+                              color: foreground,
+                            ),
+                          ),
+                          Text(
+                            subtitle,
+                            style: dark
+                                ? TextStyle(
+                                    color: primary
+                                        ? scheme.onPrimary
+                                        : scheme.onSurfaceVariant,
+                                  )
+                                : null,
+                          ),
+                        ],
                       ),
-                      Text(
-                        subtitle,
-                        style: dark
-                            ? TextStyle(
-                                color: primary
-                                    ? scheme.onPrimary
-                                    : scheme.onSurfaceVariant,
-                              )
-                            : null,
-                      ),
-                    ],
-                  ),
+                    ),
+                    Icon(Icons.arrow_forward, color: foreground),
+                  ],
                 ),
-                Icon(Icons.arrow_forward, color: foreground),
-              ],
+              ),
             ),
           ),
         ),
@@ -449,8 +471,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
           child: Center(
             child: Text(
               'ON DEVICE',
+              semanticsLabel: 'Everything stays on this device',
               style: TextStyle(
-                fontSize: 12,
+                fontSize: 14,
                 letterSpacing: 1.5,
                 color: Theme.of(context).colorScheme.onSurfaceVariant,
               ),
@@ -465,11 +488,15 @@ class _LibraryScreenState extends State<LibraryScreen> {
           : ListView(
               padding: const EdgeInsets.all(24),
               children: [
-                if (error != null) Text(error!),
+                if (error != null)
+                  Semantics(liveRegion: true, child: Text(error!)),
                 if (tab == 0) ...[
-                  Text(
-                    'From paper\nto possibility.',
-                    style: Theme.of(context).textTheme.displayLarge,
+                  Semantics(
+                    header: true,
+                    child: Text(
+                      'From paper\nto possibility.',
+                      style: Theme.of(context).textTheme.displayLarge,
+                    ),
                   ),
                   const SizedBox(height: 16),
                   const Text(
@@ -500,11 +527,14 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 Row(
                   children: [
                     Expanded(
-                      child: Text(
-                        tab == 0 ? 'Recent documents' : 'Your documents',
-                        style: const TextStyle(
-                          fontSize: 22,
-                          fontWeight: FontWeight.w600,
+                      child: Semantics(
+                        header: true,
+                        child: Text(
+                          tab == 0 ? 'Recent documents' : 'Your documents',
+                          style: const TextStyle(
+                            fontSize: 22,
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
                       ),
                     ),
@@ -649,9 +679,12 @@ class _LibraryScreenState extends State<LibraryScreen> {
   Widget settings() => ListView(
     padding: const EdgeInsets.all(24),
     children: [
-      Text(
-        'Make yourself at home.',
-        style: Theme.of(context).textTheme.displayMedium,
+      Semantics(
+        header: true,
+        child: Text(
+          'Make yourself at home.',
+          style: Theme.of(context).textTheme.displayMedium,
+        ),
       ),
       const SizedBox(height: 24),
       DropdownButtonFormField<int>(
@@ -785,9 +818,12 @@ class _LibraryScreenState extends State<LibraryScreen> {
         ),
       ),
       const SizedBox(height: 24),
-      const Text(
-        'Offline by design',
-        style: TextStyle(fontSize: 22, fontWeight: FontWeight.w600),
+      Semantics(
+        header: true,
+        child: const Text(
+          'Offline by design',
+          style: TextStyle(fontSize: 22, fontWeight: FontWeight.w600),
+        ),
       ),
       const Text(
         'OCR models and image processing are bundled. No account, server or first-run model download. Sharing opens an app you choose.',
