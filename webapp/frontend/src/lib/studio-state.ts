@@ -3,7 +3,7 @@
 import { createMemo, createSignal, onCleanup } from "solid-js";
 import { announce } from "./announce";
 import { clearMemory as clearMemoryApi, correctRun, exportRunCorrections, runRestore } from "./api";
-import { retentionText, useHealth } from "./health";
+import { refreshHealth, retentionText, useHealth } from "./health";
 import type {
   CorrectionInput,
   CorrectionStats,
@@ -136,6 +136,7 @@ export function createStudioState() {
       setPhase("error");
     } finally {
       if (timer) window.clearInterval(timer);
+      refreshHealth();
     }
   };
 

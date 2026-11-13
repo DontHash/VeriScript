@@ -9,13 +9,25 @@ import type { Health } from "./types";
 
 const [health, setHealth] = createSignal<Health | null>(null);
 let requested = false;
+let pollTimer: number | undefined;
+
+/** Fetch now; while the server reports busy (e.g. warming the OCR engine
+ *  after launch), check again every few seconds so "busy" never goes stale. */
+export function refreshHealth() {
+  if (pollTimer !== undefined) window.clearTimeout(pollTimer);
+  pollTimer = undefined;
+  void fetchHealth()
+    .then((h) => {
+      setHealth(h);
+      if (h.busy) pollTimer = window.setTimeout(refreshHealth, 3000);
+    })
+    .catch(() => setHealth(null));
+}
 
 export function useHealth() {
   if (!requested) {
     requested = true;
-    void fetchHealth()
-      .then(setHealth)
-      .catch(() => setHealth(null));
+    refreshHealth();
   }
   return health;
 }

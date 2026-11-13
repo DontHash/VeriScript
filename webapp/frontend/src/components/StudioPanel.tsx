@@ -195,7 +195,7 @@ export function StudioPanel(props: { state: StudioState; compact?: boolean }) {
         <div class="runbar__status">
           <span>{limitsLine(s.health())}</span>
           <Show when={s.health()?.busy}>
-            <span>worker busy — you may queue</span>
+            <span>The engine is busy. Your page will start when it is free.</span>
           </Show>
         </div>
       </div>
