@@ -140,10 +140,14 @@ fn spawn_server(port: u16, token: &str, runs_dir: &Path, log: &Path) -> std::io:
         .env("VERISCRIPT_WEB_DAILY_PAGES", "0")
         .env("VERISCRIPT_WEB_DAILY_PAGES_PER_CLIENT", "0")
         .env("VERISCRIPT_WEB_MAX_UPLOAD_MB", "200")
-        .env("VERISCRIPT_WEB_TIMEOUT_S", "1800")
-        .env("VERISCRIPT_WEB_QUEUE_WAIT_S", "1800")
-        // Results stay a week; the app-data folder is the user's own disk.
-        .env("VERISCRIPT_WEB_TTL_MINUTES", "10080")
+        // Long PDFs run as background jobs with progress and Cancel, so
+        // neither a page cap nor a run timeout applies on the desktop.
+        .env("VERISCRIPT_WEB_PAGE_CAP", "0")
+        .env("VERISCRIPT_WEB_TIMEOUT_S", "0")
+        .env("VERISCRIPT_WEB_MAX_QUEUED", "200")
+        // Results are kept until the user deletes them: the app-data folder
+        // is the user's own disk (TTL 0 = keep).
+        .env("VERISCRIPT_WEB_TTL_MINUTES", "0")
         .env("PYTHONUNBUFFERED", "1")
         .env("PYTHONIOENCODING", "utf-8")
         .stdin(Stdio::null())

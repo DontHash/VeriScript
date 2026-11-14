@@ -23,7 +23,9 @@ the computer.
   other programs on the machine and web pages probing localhost get 403.
 - **Local mode.** `VERISCRIPT_WEB_MODE=local` switches the studio's wording to
   "processed on this computer". The shell also turns off the hosted demo's
-  quotas: 200 MB uploads, no daily page limits, and results kept for 7 days.
+  quotas: 200 MB uploads, no daily page limits, no PDF page cap or run
+  timeout (long files run as background jobs with progress and Cancel), and
+  results kept until you delete them.
 - **Where files go.** Runs go to the app-data folder
   (`%APPDATA%\live.veriscript.desktop\runs` on Windows). The server log goes
   to the app log folder (`%LOCALAPPDATA%\live.veriscript.desktop\logs\server.log`)

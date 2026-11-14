@@ -5,6 +5,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'background.dart';
 import 'documents.dart';
 import 'exports.dart';
 import 'processing.dart';
@@ -88,6 +89,9 @@ class _ReviewScreenState extends State<ReviewScreen> {
       status = label;
       fraction = null;
     });
+    // Long work keeps running (with a progress notification) if the user
+    // switches apps; short work never shows one.
+    final notice = ProcessingNotice(doc.title, () => (status, fraction))..begin();
     try {
       await task();
     } catch (e) {
@@ -98,6 +102,7 @@ class _ReviewScreenState extends State<ReviewScreen> {
       );
     } finally {
       processor = null;
+      await notice.end();
       try {
         await widget.store.save(doc);
       } catch (e) {

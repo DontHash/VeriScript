@@ -119,14 +119,42 @@ def write_searchable_pdf_pages(path: str, pages, title: Optional[str] = None) ->
     inputs stay honest. Per-page artifacts are unaffected; this is the
     combined output for multi-page PDF inputs (P6).
     """
-    from reportlab.lib.utils import ImageReader
-    from reportlab.pdfgen import canvas
+    writer = SearchablePdfWriter(path, title=title)
+    try:
+        for image_bgr, tokens, dpi in pages:
+            writer.add_page(image_bgr, tokens, dpi)
+        writer.close()
+    except BaseException:
+        writer.discard()
+        raise
+    return path
 
-    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
-    c = canvas.Canvas(path)
-    c.setTitle(title or os.path.splitext(os.path.basename(path))[0])
-    font = unicode_pdf_font() or "Helvetica"
-    for image_bgr, tokens, dpi in pages:
+
+class SearchablePdfWriter:
+    """Add pages one at a time.
+
+    The caller can drop each page image right after `add_page`: only the
+    compressed PDF objects stay in memory (reportlab writes them on `close`),
+    never the decoded page arrays. The file is written to
+    `<path>.part` and renamed on `close()`; `discard()` removes it, so a
+    stopped run never leaves a half-written PDF under the real name.
+    """
+
+    def __init__(self, path: str, title: Optional[str] = None) -> None:
+        from reportlab.pdfgen import canvas
+
+        self.path = path
+        self._part = path + ".part"
+        os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+        self._canvas = canvas.Canvas(self._part)
+        self._canvas.setTitle(title or os.path.splitext(os.path.basename(path))[0])
+        self._font = unicode_pdf_font() or "Helvetica"
+        self.pages = 0
+
+    def add_page(self, image_bgr: np.ndarray, tokens, dpi: Optional[int] = None) -> None:
+        from reportlab.lib.utils import ImageReader
+
+        c = self._canvas
         dpi = _estimate_dpi(image_bgr, dpi)
         h, w = image_bgr.shape[:2]
         pw, ph = w * 72.0 / dpi, h * 72.0 / dpi
@@ -142,13 +170,23 @@ def write_searchable_pdf_pages(path: str, pages, title: Optional[str] = None) ->
             size = max(4.0, (y1 - y0) * px2pt * 0.85)
             t = c.beginText()
             t.setTextRenderMode(3)  # invisible but selectable/extractable
-            t.setFont(font, size)
+            t.setFont(self._font, size)
             t.setTextOrigin(x0 * px2pt, ph - y1 * px2pt)
             t.textOut(text)
             c.drawText(t)
         c.showPage()
-    c.save()
-    return path
+        self.pages += 1
+
+    def close(self) -> str:
+        self._canvas.save()
+        os.replace(self._part, self.path)
+        return self.path
+
+    def discard(self) -> None:
+        try:
+            os.remove(self._part)
+        except OSError:
+            pass
 
 
 def write_searchable_pdf(path: str, image_bgr: np.ndarray, tokens: List[Token],

@@ -2,7 +2,9 @@ import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter/services.dart';
 import 'copy.dart';
+import 'diagnostics.dart';
 import 'documents.dart';
 import 'errors.dart';
 import 'review.dart';
@@ -537,6 +539,38 @@ class _LibraryScreenState extends State<LibraryScreen> {
       ],
     ),
   );
+  /// Shows the local diagnostics report; copying it is the person's choice.
+  Future<void> showDiagnostics() async {
+    final report = await diagnosticsReport(widget.settings, widget.store);
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Diagnostics'),
+        content: SingleChildScrollView(
+          child: SelectableText(
+            report,
+            style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+          FilledButton(
+            onPressed: () async {
+              await Clipboard.setData(ClipboardData(text: report));
+              if (context.mounted) Navigator.pop(context);
+              message('Diagnostics copied. Paste them into your bug report.');
+            },
+            child: const Text('Copy'),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget settings() => ListView(
     padding: const EdgeInsets.all(24),
     children: [
@@ -700,6 +734,17 @@ class _LibraryScreenState extends State<LibraryScreen> {
       const SizedBox(height: 16),
       ListTile(
         contentPadding: EdgeInsets.zero,
+        leading: const Icon(Icons.bug_report_outlined),
+        title: const Text('Diagnostics for a bug report'),
+        subtitle: const Text(
+          'Versions, settings, counts and recent errors. No titles, text or images. '
+          'Nothing is sent; you choose whether to copy it.',
+        ),
+        trailing: const Icon(Icons.chevron_right),
+        onTap: showDiagnostics,
+      ),
+      ListTile(
+        contentPadding: EdgeInsets.zero,
         leading: const Icon(Icons.accessibility_new),
         title: const Text('Accessibility'),
         subtitle: const Text(
@@ -714,7 +759,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
         onPressed: () => showLicensePage(
           context: context,
           applicationName: 'VeriScript',
-          applicationVersion: '0.1.0',
+          applicationVersion: appVersion,
         ),
         child: const Text('Open-source licenses'),
       ),

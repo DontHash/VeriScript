@@ -371,6 +371,11 @@
   animation: scan 1.4s var(--ease-in-out) infinite;
 }
 
+.progress--determinate .progress__fill {
+  animation: none;
+  transition: width 0.3s var(--ease-in-out);
+}
+
 @keyframes scan {
   0% {
     transform: translateX(-100%);

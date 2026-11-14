@@ -2,9 +2,41 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:archive/archive.dart';
 import 'package:flutter/services.dart';
-import 'package:pdf/pdf.dart';
-import 'package:pdf/widgets.dart' as pw;
+import 'package:image/image.dart' as img;
 import 'documents.dart';
+import 'pdf_stream.dart';
+
+TrueTypeFont? _font;
+
+/// The bundled Unicode font, parsed once per app run.
+Future<TrueTypeFont> _exportFont() async {
+  return _font ??= TrueTypeFont.parse(
+    (await rootBundle.load('assets/Mukta-Regular.ttf')).buffer.asUint8List(),
+  );
+}
+
+/// Page image bytes as JPEG. Pages are stored as JPEG; anything else is
+/// re-encoded once so the PDF can embed it without decoding later.
+Future<Uint8List> _jpegOf(String path) async {
+  final bytes = await File(path).readAsBytes();
+  if (JpegInfo.read(bytes) != null) return bytes;
+  final decoded = img.decodeImage(bytes);
+  if (decoded == null) throw StateError('A page image could not be read.');
+  return img.encodeJpg(decoded, quality: 92);
+}
+
+/// Recognised lines with usable boxes, in page-image pixels.
+List<PdfTextLine> _textLines(ScanPage page) => [
+  for (final line in page.lines)
+    if (line['bbox'] is List && (line['bbox'] as List).length == 4)
+      PdfTextLine(
+        line['text'] as String? ?? '',
+        (line['bbox'][0] as num).toDouble(),
+        (line['bbox'][1] as num).toDouble(),
+        (line['bbox'][2] as num).toDouble(),
+        (line['bbox'][3] as num).toDouble(),
+      ),
+];
 
 String xmlEscape(String value) => value
     .replaceAll(RegExp(r'[\x00-\x08\x0B\x0C\x0E-\x1F]'), '')
@@ -125,64 +157,32 @@ Future<File> exportDocument(
   final pending = File('${file.path}.pending');
   try {
     if (kind == ExportKind.imagePdf || kind == ExportKind.searchablePdf) {
-      final pdf = pw.Document(title: doc.title, creator: 'VeriScript Offline');
-      final font = pw.Font.ttf(
-        await rootBundle.load('assets/Mukta-Regular.ttf'),
+      // Page by page: only one page image is in memory at a time.
+      final font = kind == ExportKind.searchablePdf ? await _exportFont() : null;
+      final pdf = await StreamingPdfWriter.open(
+        pending.path,
+        title: doc.title,
+        font: font,
       );
-      for (var index = 0; index < pages.length; index++) {
-        if (cancelled?.call() == true) throw StateError('Export cancelled');
-        final page = pages[index];
-        final bytes = await File(page.path).readAsBytes();
-        final image = pw.MemoryImage(bytes);
-        // Match PDF coordinates to image coordinates. Hidden text does not
-        // alter the scan; it makes OCR/corrections selectable and searchable.
-        final width = 595.0;
-        final ratio = width / page.width;
-        final height = page.height * ratio;
-        pdf.addPage(
-          pw.Page(
-            pageFormat: PdfPageFormat(width, height),
-            margin: pw.EdgeInsets.zero,
-            build: (_) => pw.Stack(
-              children: [
-                pw.Positioned(
-                  left: 0,
-                  top: 0,
-                  right: 0,
-                  bottom: 0,
-                  child: pw.Image(image, fit: pw.BoxFit.fill),
-                ),
-                if (kind == ExportKind.searchablePdf)
-                  ...page.lines.map((line) {
-                    final box = List<num>.from(line['bbox']);
-                    return pw.Positioned(
-                      left: box[0] * ratio,
-                      top: box[1] * ratio,
-                      child: pw.SizedBox(
-                        width: box[2] * ratio,
-                        height: box[3] * ratio,
-                        child: pw.Opacity(
-                          opacity: 0,
-                          child: pw.FittedBox(
-                            fit: pw.BoxFit.contain,
-                            alignment: pw.Alignment.topLeft,
-                            child: pw.Text(
-                              line['text'],
-                              style: pw.TextStyle(font: font, fontSize: 12),
-                            ),
-                          ),
-                        ),
-                      ),
-                    );
-                  }),
-              ],
-            ),
-          ),
-        );
-        progress?.call(index + 1, pages.length);
-        await Future<void>.delayed(Duration.zero);
+      try {
+        for (var index = 0; index < pages.length; index++) {
+          if (cancelled?.call() == true) throw StateError('Export cancelled');
+          final page = pages[index];
+          await pdf.addPage(
+            await _jpegOf(page.path),
+            pixelWidth: page.width,
+            pixelHeight: page.height,
+            // Hidden text does not alter the scan; it makes OCR and
+            // corrections selectable and searchable.
+            lines: kind == ExportKind.searchablePdf ? _textLines(page) : const [],
+          );
+          progress?.call(index + 1, pages.length);
+        }
+        await pdf.close();
+      } catch (_) {
+        await pdf.abandon();
+        rethrow;
       }
-      await pending.writeAsBytes(await pdf.save(), flush: true);
     } else if (kind == ExportKind.digitalPdf) {
       // Android's text layout handles Devanagari shaping and font fallback.
       await native.invokeMethod('textPdf', {

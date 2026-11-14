@@ -1,6 +1,6 @@
 # VeriScript for Android
 
-Offline document capture and conversion. Paper & Ink is the light theme; Night Studio is the dark theme. Flutter provides the UI, bundled ML Kit reads Latin/Devanagari, and bundled OpenCV handles images. No Python service, account or first-launch model download. Release manifests remove Internet permission; debug builds permit Flutter's local debugger connection.
+Offline document capture and conversion. Paper & Ink is the light theme; Night Studio is the dark theme. Flutter provides the UI, bundled ML Kit reads Latin/Devanagari, and bundled OpenCV handles images. No Python service, account or first-launch model download. Release manifests remove Internet permission; debug builds permit Flutter's local debugger connection. The app asks once for notification permission (Android 13+) the first time a long job runs; declining only hides the progress notification.
 
 ## Implemented workflow
 
@@ -14,6 +14,10 @@ Offline document capture and conversion. Paper & Ink is the light theme; Night S
 - Digit checks: enlarged contrast-adjusted crops are read again by the **same** engine; groups are compared without changing the first reading. Alternatives and conflict/unclear/agreement states appear in review and correction JSON. Up to 80 digit-bearing lines are checked per page; remaining lines are marked unchecked. Numbers require human confirmation even when readings agree.
 - Recorded/imported book video: stable-frame selection, deduplication, single-page or left/right spreads, review, exclusion and reorder. Experimental; completeness and crop accuracy need field testing.
 - Combined image PDF, searchable image PDF, digital text-layout PDF, editable DOCX, TXT, Markdown and correction JSON. Android text layout shapes Devanagari for digital PDFs. Exports remain in app-private storage and can be shared through Android.
+- Image and searchable PDFs are written page by page (`lib/pdf_stream.dart`): page JPEGs are copied in without re-encoding, so peak memory is one page. The searchable text layer is invisible (render mode 3), stretched to each line's box so selection lines up, and embeds only the Mukta glyphs used, with a ToUnicode map; copy and search return exact Unicode, Devanagari conjuncts included.
+- Work that runs longer than two seconds (batch recognition, export, imports) shows a progress notification through a foreground service, so Android does not stop it when you switch apps. Drafts are still saved after every page.
+- Settings → Diagnostics shows versions, settings, counts and recent error types (no titles, text, images or file paths) for a bug report. Nothing is sent; you choose whether to copy it.
+- `document.json` stores files as paths relative to the document folder (schema 2), so a restored backup or moved storage keeps working. Older absolute paths are re-homed on load.
 
 The digital text-layout PDF renders Devanagari correctly, but Android PDF text extraction can omit parts of conjuncts. Choose searchable scans or DOCX when preserving Nepali copy/search text matters.
 

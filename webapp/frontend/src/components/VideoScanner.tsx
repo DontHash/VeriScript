@@ -147,7 +147,10 @@ export function VideoScanner() {
       <h3>Review {result().pages.length} captured pages · {selected().length} selected</h3>
       <For each={result().warnings}>{(warning) => <p class="field__hint">{warning}</p>}</For>
       <p class="field__hint">Uncheck duplicates or bad frames. Use Earlier / Later to correct the order.
-        Click a preview to inspect it full size. Results expire in {Math.round(result().expires_in / 60)} minutes.</p>
+        Click a preview to inspect it full size.{" "}
+        {result().expires_in > 0
+          ? `Results expire in ${Math.round(result().expires_in / 60)} minutes.`
+          : "Results are kept on this computer until you delete them."}</p>
       <div class="video-pages">
         <For each={order()}>{(id, index) => {
           const page = () => pages().get(id)!;

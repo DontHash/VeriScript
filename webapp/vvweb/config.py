@@ -51,10 +51,14 @@ class Settings:
     video_timeout_s: int = field(default_factory=lambda: _env_int("WEB_VIDEO_TIMEOUT_S", 600))
     video_pages_per_client: int = field(default_factory=lambda: _env_int("WEB_VIDEO_PAGES_PER_CLIENT", 200))
 
+    # PDF pages read per run with "all pages" on. 0 = no cap (desktop app).
+    page_cap: int = field(default_factory=lambda: max(0, _env_int("WEB_PAGE_CAP", 10)))
+    # Jobs waiting behind the one running (the rest get a 503).
+    max_queued_jobs: int = field(default_factory=lambda: max(1, _env_int("WEB_MAX_QUEUED", 20)))
+
     # Processing
     process_timeout_s: int = field(default_factory=lambda: _env_int("WEB_TIMEOUT_S", 180))
     max_concurrent: int = field(default_factory=lambda: _env_int("WEB_CONCURRENCY", 1))
-    queue_wait_s: int = field(default_factory=lambda: _env_int("WEB_QUEUE_WAIT_S", 25))
 
     # Real client IP for rate limiting: "direct" (default) or "xff-last".
     # "xff-last" trusts the last X-Forwarded-For entry — correct for managed
@@ -108,7 +112,8 @@ class Settings:
 
     @property
     def run_ttl_seconds(self) -> int:
-        return self.run_ttl_minutes * 60
+        """0 = keep runs until the user deletes them (desktop app)."""
+        return max(0, self.run_ttl_minutes) * 60
 
 
 settings = Settings()

@@ -1,7 +1,7 @@
 /** Workflow behaviour from audit Phase 3: cancel, restore after refresh,
  *  file checks, download-all and the review queue's page crops. */
 import { expect, test, type Page } from "@playwright/test";
-import { mockApi, RUN } from "./fixtures";
+import { JOB_DONE, mockApi, RUN } from "./fixtures";
 
 async function runExample(page: Page) {
   await page.goto("/studio");
@@ -12,13 +12,28 @@ async function runExample(page: Page) {
 
 test("a running page can be cancelled", async ({ page }) => {
   await mockApi(page);
-  // Never answer: the run stays in flight until the user cancels it.
-  await page.route("**/api/restore", () => {});
+  // The job keeps running until the user cancels it; Cancel must tell the
+  // server (DELETE), not just stop waiting.
+  const deletes: string[] = [];
+  await page.route("**/api/jobs/*", (r) => {
+    if (r.request().method() === "DELETE") {
+      deletes.push(r.request().url());
+      return r.fulfill({ json: { ...JOB_DONE, status: "running", cancel_requested: true, result: undefined } });
+    }
+    return r.fulfill({
+      json: { ...JOB_DONE, status: "running", stage: "Reading page 2 of 5", page: 2, pages: 5, result: undefined },
+    });
+  });
   await page.goto("/studio");
   await page.getByRole("button", { name: "Invoice photo" }).click();
   await page.getByRole("button", { name: "Restore and read" }).click();
   await expect(page.getByRole("button", { name: "Reading…" })).toBeDisabled();
+  await expect(page.locator(".runbar__elapsed")).toContainText("Reading page 2 of 5");
+  await expect(page.locator('[role="status"][aria-live="polite"]')).toContainText("Reading page 2 of 5");
+  await expect(page.getByRole("progressbar", { name: "Pages read" })).toHaveAttribute("aria-valuenow", "1");
   await page.getByRole("button", { name: "Cancel" }).click();
+  await expect.poll(() => deletes.length).toBe(1);
+  expect(deletes[0]).toContain("/api/jobs/0123456789abcdef");
   await expect(page.getByRole("button", { name: "Restore and read" })).toBeEnabled();
   await expect(page.locator('[role="status"][aria-live="polite"]')).toContainText("Stopped");
   await expect(page.getByRole("alert")).toHaveCount(0);
@@ -48,7 +63,7 @@ test("an expired saved result is not restored", async ({ page }) => {
 test("unsupported files are refused before upload", async ({ page }) => {
   await mockApi(page);
   let uploads = 0;
-  await page.route("**/api/restore", (r) => {
+  await page.route("**/api/jobs", (r) => {
     uploads++;
     return r.abort();
   });

@@ -2,13 +2,14 @@
  *  page, so the product behaves identically wherever it is embedded. */
 import { createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
 import { announce } from "./announce";
-import { clearMemory as clearMemoryApi, correctRun, exportRunCorrections, runRestore } from "./api";
+import { clearMemory as clearMemoryApi, correctRun, exportRunCorrections, runJob } from "./api";
 import { refreshHealth, retentionText, useHealth } from "./health";
 import type {
   CorrectionInput,
   CorrectionStats,
   ExportResponse,
   Health,
+  JobStatus,
   Lang,
   OcrEngine,
   RunPayload,
@@ -47,8 +48,10 @@ function loadSavedRun(): SavedRun | null {
     const raw = window.localStorage.getItem(SAVED_KEY);
     if (!raw) return null;
     const saved = JSON.parse(raw) as SavedRun;
-    const expiresAt = saved.savedAt + (saved.result?.expires_in ?? 0) * 1000;
-    if (!saved.result?.run_id || Date.now() >= expiresAt) {
+    // expires_in 0: the server keeps results until they are deleted.
+    const ttl = saved.result?.expires_in ?? 0;
+    const expired = ttl > 0 && Date.now() >= saved.savedAt + ttl * 1000;
+    if (!saved.result?.run_id || expired) {
       window.localStorage.removeItem(SAVED_KEY);
       return null;
     }
@@ -83,6 +86,8 @@ export function createStudioState() {
   const [result, setResult] = createSignal<RunPayload | null>(null);
   const [error, setError] = createSignal<string | null>(null);
   const [elapsed, setElapsed] = createSignal(0);
+  /** Latest job status while a run is in flight (queue position, page n of m). */
+  const [job, setJob] = createSignal<JobStatus | null>(null);
   const health = useHealth();
   const [inputUrl, setInputUrl] = createSignal<string | null>(null);
   const [showBoxes, setShowBoxes] = createSignal(true);
@@ -222,12 +227,14 @@ export function createStudioState() {
     setPhase("running");
     setError(null);
     setElapsed(0);
+    setJob(null);
     controller = new AbortController();
     announce(`Reading ${f.name}. This can take a minute.`);
     const startedAt = performance.now();
     timer = window.setInterval(() => setElapsed((performance.now() - startedAt) / 1000), 100);
     try {
-      const payload = await runRestore(f, {
+      let lastStage = "";
+      const payload = await runJob(f, {
         lang: lang(),
         deskew: deskew(),
         ocr: ocr(),
@@ -239,7 +246,17 @@ export function createStudioState() {
           txt: wantTxt(),
           md: wantMd(),
         },
-      }, controller.signal);
+      }, {
+        signal: controller.signal,
+        onProgress: (status) => {
+          setJob(status);
+          // Announce page changes for screen readers, not every poll.
+          if (status.pages > 1 && status.stage !== lastStage) {
+            lastStage = status.stage;
+            announce(status.stage);
+          }
+        },
+      });
       savedAt = Date.now();
       setResult(payload);
       setPhase("done");
@@ -258,13 +275,14 @@ export function createStudioState() {
       }
     } finally {
       controller = undefined;
+      setJob(null);
       if (timer) window.clearInterval(timer);
       refreshHealth();
     }
   };
 
-  /** Stop waiting for the current page. The server finishes the page it has
-   *  already started and discards it when its retention window ends. */
+  /** Stop the run. The server finishes the page it is reading, then stops
+   *  and deletes the partial result; nothing else is processed. */
   const cancel = () => {
     controller?.abort();
   };
@@ -382,6 +400,7 @@ export function createStudioState() {
     setShowBoxes,
     chooseFile,
     chooseFiles,
+    job,
     clearFile,
     cancel,
     notice,
@@ -415,5 +434,19 @@ export const EXAMPLE_FILES = [
 export function limitsLine(health: Health | null): string {
   if (!health) return "Up to 12 MB · first page of PDFs · results kept 60 minutes";
   const { max_upload_mb, max_pages, ttl_minutes } = health.limits;
-  return `Up to ${max_upload_mb} MB · up to ${max_pages} PDF pages · results kept ${retentionText(ttl_minutes)}`;
+  const pages = max_pages > 0 ? `up to ${max_pages} PDF pages` : "any number of PDF pages";
+  const kept = ttl_minutes > 0 ? `results kept ${retentionText(ttl_minutes)}` : "results kept until you delete them";
+  return `Up to ${max_upload_mb} MB · ${pages} · ${kept}`;
+}
+
+/** What the running bar says: queue position, or the server's current step. */
+export function jobLine(job: JobStatus | null): string {
+  if (!job) return "Uploading…";
+  if (job.cancel_requested) return "Stopping after the current page…";
+  if (job.status === "queued") {
+    return job.position && job.position > 1
+      ? `Waiting · ${job.position - 1} ${job.position === 2 ? "file" : "files"} ahead`
+      : "Waiting for the reader…";
+  }
+  return job.stage || "Reading…";
 }

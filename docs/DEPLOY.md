@@ -30,13 +30,15 @@ Environment knobs:
 | `VERISCRIPT_WEB_USER` / `VERISCRIPT_WEB_PASSWORD` | unset | when both are set, `/api/*` requires HTTP basic auth |
 | `VERISCRIPT_WEB_MAX_UPLOAD_MB` | `12` | upload cap per page |
 | `VERISCRIPT_WEB_MAX_MP` | `30` | image megapixel cap |
-| `VERISCRIPT_WEB_TIMEOUT_S` | `180` | per-page processing timeout |
-| `VERISCRIPT_WEB_CONCURRENCY` / `VERISCRIPT_WEB_QUEUE_WAIT_S` | `1` / `25` | single heavy worker; queue beyond it, then 503 |
+| `VERISCRIPT_WEB_TIMEOUT_S` | `180` | per-run processing limit; the job stops between pages once it is exceeded (`0` = no limit, desktop) |
+| `VERISCRIPT_WEB_CONCURRENCY` | `1` | heavy pipeline runs at once (OCR, video); uploads queue behind it as jobs |
+| `VERISCRIPT_WEB_MAX_QUEUED` | `20` | jobs allowed to wait behind the running one; more get a 503 |
+| `VERISCRIPT_WEB_PAGE_CAP` | `10` | PDF pages read per run with "all pages" on (`0` = no cap, desktop) |
 | `VERISCRIPT_WEB_DAILY_RUNS` | `300` | hard daily run budget across all clients (UTC reset); `0` disables — the billing kill-switch |
 | `VERISCRIPT_WEB_DAILY_PAGES` | `500` | global daily page budget across all clients (UTC reset); `0` disables |
 | `VERISCRIPT_WEB_DAILY_PAGES_PER_CLIENT` | `20` | per-visitor (client IP) daily page budget; a 10-page PDF costs 10; `0` disables |
 | `VERISCRIPT_WEB_MAX_CONNECTIONS` | `32` | uvicorn connection cap (excess connections are shed) |
-| `VERISCRIPT_WEB_TTL_MINUTES` | `60` | artifact retention before the periodic sweep |
+| `VERISCRIPT_WEB_TTL_MINUTES` | `60` | artifact retention before the periodic sweep (`0` = keep until deleted, desktop) |
 | `VERISCRIPT_WEB_RATE_MAX` / `VERISCRIPT_WEB_RATE_WINDOW_S` | `6` / `120` | per-IP sliding window |
 | `VERISCRIPT_LEXICON` | `data/lexicon/nepali_lexicon_v1.txt` | optional `unknown_word` lexicon; not in the image (see `scripts/fetch_nepali_lexicon.py`) |
 | `VERISCRIPT_MEMORY` | unset (off) | local correction memory (track D2): `1` records accepted fixes in a text-only JSONL and suggests them on later runs. **Leave off on multi-tenant demos** — no visitor isolation without accounts |

@@ -153,9 +153,62 @@ class ScanDocument {
 
 /// One app-private directory per document. Persist after each page, not only
 /// on exit, so interrupted batches can be recovered from the Files screen.
+///
+/// `document.json` stores files inside the document's own folder as
+/// `doc:<name>` rather than absolute paths (schema 2), so a restored backup
+/// or a moved app-data folder still finds every page. Older absolute paths
+/// are re-homed by file name when the file is in the document's folder.
 class DocumentStore {
   DocumentStore(this.root);
   final Directory root;
+
+  /// Version of the `document.json` layout this build writes.
+  static const schemaVersion = 2;
+  static const _local = 'doc:';
+
+  static final _separator = RegExp(r'[\\/]');
+  static String _baseName(String path) => path.split(_separator).last;
+
+  /// In-memory absolute path → stored form.
+  static String packPath(String dir, String path) =>
+      path.startsWith('$dir/') ? '$_local${path.substring(dir.length + 1)}' : path;
+
+  /// Stored form → absolute path in this document's folder.
+  static String unpackPath(String dir, String path) {
+    if (path.startsWith(_local)) return '$dir/${path.substring(_local.length)}';
+    // Schema 1 wrote absolute paths. After a backup restore or a storage
+    // move they point at an old root; the file itself is in `dir`.
+    if (_separator.hasMatch(path) && !File(path).existsSync()) {
+      final rehomed = '$dir/${_baseName(path)}';
+      if (File(rehomed).existsSync()) return rehomed;
+    }
+    return path;
+  }
+
+  /// Apply [f] to every file path in a serialized document.
+  static Map<String, dynamic> mapPaths(
+    Map<String, dynamic> json,
+    String Function(String) f,
+  ) {
+    String? one(Object? v) => v is String ? f(v) : null;
+    for (final raw in json['pages'] as List? ?? const []) {
+      final page = raw as Map;
+      for (final key in ['path', 'source']) {
+        final v = one(page[key]);
+        if (v != null) page[key] = v;
+      }
+      final previous = page['previousVersion'];
+      if (previous is Map) {
+        final v = one(previous['path']);
+        if (v != null) previous['path'] = v;
+      }
+    }
+    final exports = json['exports'];
+    if (exports is List) {
+      json['exports'] = exports.map((e) => one(e) ?? e).toList();
+    }
+    return json;
+  }
   Future<void> _writes = Future.value();
   static Future<DocumentStore> open() async {
     final base = await getApplicationDocumentsDirectory();
@@ -198,7 +251,12 @@ class DocumentStore {
   }
 
   Future<void> save(ScanDocument doc) {
-    final snapshot = jsonEncode(doc.toJson());
+    final dir = directory(doc);
+    final json = mapPaths(
+      jsonDecode(jsonEncode(doc.toJson())) as Map<String, dynamic>,
+      (p) => packPath(dir, p),
+    )..['schemaVersion'] = schemaVersion;
+    final snapshot = jsonEncode(json);
     final next = _writes.then((_) async {
       final file = File('${directory(doc)}/document.json');
       final pending = File('${file.path}.pending');
@@ -219,8 +277,13 @@ class DocumentStore {
       for (final candidate in [file, pending]) {
         if (!await candidate.exists()) continue;
         try {
+          // Same form as directory(doc), which is how paths were packed.
+          final dir = '${root.path}/${_baseName(entry.path)}';
+          final json = jsonDecode(await candidate.readAsString());
+          if (json is! Map<String, dynamic>) continue;
+          // `schemaVersion` absent = 1 (absolute paths); migrations key on it.
           final doc = ScanDocument.fromJson(
-            jsonDecode(await candidate.readAsString()),
+            mapPaths(json, (p) => unpackPath(dir, p)),
           );
           if (doc.id !=
               entry.uri.pathSegments.where((s) => s.isNotEmpty).last) {

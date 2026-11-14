@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import os
 import time
-from typing import Dict, List, Optional, Tuple
+from typing import Callable, Dict, Iterator, List, Optional, Tuple
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import sys  # noqa: E402
@@ -19,8 +19,11 @@ if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
 
 #: PDF pages processed per run when ``all_pages`` is on (keeps the single
-#: heavy worker bounded; the response reports what was processed).
-PAGE_CAP = 10
+#: heavy worker bounded on a shared demo; the response reports what was
+#: processed). ``0`` means no cap: the desktop app sets VERISCRIPT_WEB_PAGE_CAP=0.
+from .config import settings  # noqa: E402
+
+PAGE_CAP = settings.page_cap
 
 CANONICAL = {
     "restored.png": "image/png",
@@ -39,31 +42,69 @@ class PipelineError(RuntimeError):
     pass
 
 
-def _load_pages(path: str, kind: Optional[str],
-                all_pages: bool) -> Tuple[List[Tuple[int, "object"]], str]:
-    """Return ([(page_index, BGR page)], kind).
+def _is_pdf(path: str, kind: Optional[str]) -> bool:
+    return kind == "pdf" if kind else path.lower().endswith(".pdf")
+
+
+def count_pdf_pages(path: str) -> int:
+    import pypdfium2 as pdfium
+
+    doc = pdfium.PdfDocument(path)
+    try:
+        return len(doc)
+    finally:
+        doc.close()
+
+
+def pages_to_process(path: str, kind: Optional[str], all_pages: bool,
+                     page_cap: Optional[int] = None) -> int:
+    """How many pages a run will read (quota units and the progress total)."""
+    if not _is_pdf(path, kind) or not all_pages:
+        return 1
+    cap = PAGE_CAP if page_cap is None else page_cap
+    try:
+        n = max(1, count_pdf_pages(path))
+    except Exception:  # noqa: BLE001 - validation reports unreadable files
+        return max(1, cap)
+    return min(n, cap) if cap else n
+
+
+def _iter_pages(path: str, kind: Optional[str], all_pages: bool,
+                page_cap: Optional[int] = None
+                ) -> Iterator[Tuple[int, "object"]]:
+    """Yield (page_index, BGR page) one at a time.
 
     `kind` ("image" | "pdf", from the upload validator) wins over the file
     extension: streamed uploads land on disk without one. PDFs default to the
-    first page; ``all_pages`` expands to (at most PAGE_CAP) pages.
+    first page; ``all_pages`` expands to every page up to the cap (0 = no
+    cap). Pages are rendered lazily so a long PDF never sits in memory.
     """
-    is_pdf = kind == "pdf" if kind else path.lower().endswith(".pdf")
-    if is_pdf:
+    if _is_pdf(path, kind):
         from veriscript.core import data as doc_data
-        pages: List[Tuple[int, "object"]] = []
+        cap = PAGE_CAP if page_cap is None else page_cap
+        limit = (cap or None) if all_pages else 1
+        n = 0
         for idx, img_bgr, _gt in doc_data.pdf_to_pages(path, dpi=200):
-            pages.append((idx, img_bgr))
-            if not all_pages or len(pages) >= PAGE_CAP:
+            yield idx, img_bgr
+            n += 1
+            if limit is not None and n >= limit:
                 break
-        if not pages:
+        if n == 0:
             raise PipelineError("Could not read that PDF.")
-        return pages, "pdf"
+        return
 
     from veriscript.document.orientation import load_image_bgr
     img_bgr = load_image_bgr(path)
     if img_bgr is None:
         raise PipelineError("Could not read that image.")
-    return [(0, img_bgr)], "image"
+    yield 0, img_bgr
+
+
+def _load_pages(path: str, kind: Optional[str],
+                all_pages: bool) -> Tuple[List[Tuple[int, "object"]], str]:
+    """Eager form of `_iter_pages` (kept for callers that want a list)."""
+    return list(_iter_pages(path, kind, all_pages)), (
+        "pdf" if _is_pdf(path, kind) else "image")
 
 
 def _copy_or_text(run_dir: str, name: str, src: Optional[str],
@@ -167,16 +208,26 @@ def process_page(upload_path: str, run_dir: str, run_id: str, *,
                  make_overlay: bool = True, make_pdf: bool = True,
                  make_txt: bool = True, make_md: bool = True,
                  all_pages: bool = False,
-                 auto_rotate: bool = True) -> Dict:
-    """Run restore+OCR and write canonical artifacts into run_dir."""
+                 auto_rotate: bool = True,
+                 progress: Optional[Callable[[int, int, str], None]] = None,
+                 check: Optional[Callable[[], None]] = None,
+                 page_cap: Optional[int] = None) -> Dict:
+    """Run restore+OCR and write canonical artifacts into run_dir.
+
+    `progress(page, pages, stage)` is called before each page; `check()` is
+    called between pages and may raise to stop the run (jobs.JobCancelled).
+    Pages are read one at a time: only page 1's result and every page's OCR
+    tokens are kept, so long PDFs do not pile up page images in memory.
+    """
     import cv2
 
-    from veriscript.document.export import (write_combined_transcript_md,
-                                 write_searchable_pdf_pages)
+    from veriscript.document.export import (SearchablePdfWriter,
+                                 write_combined_transcript_md)
     from veriscript.document.pipeline import run_document_pipeline
 
     started = time.time()
-    pages, kind = _load_pages(upload_path, kind, all_pages)
+    kind = "pdf" if _is_pdf(upload_path, kind) else "image"
+    total = pages_to_process(upload_path, kind, all_pages, page_cap)
     backend = None if ocr in (None, "auto") else ocr
     # CLI parity: image pages get the line reader under the measured `auto`
     # gate (running text + aged paper only); PDF pages keep the engine
@@ -184,17 +235,51 @@ def process_page(upload_path: str, run_dir: str, run_id: str, *,
     deva_lines = "auto" if kind == "image" else "off"
 
     stem = f"page_{run_id[:8]}"
-    results = []
-    for idx, img_bgr in pages:
-        page_stem = stem if idx == pages[0][0] else f"{stem}_p{idx:03d}"
-        results.append((page_stem, run_document_pipeline(
-            img_bgr, backend=backend, deskew=deskew, lang=lang,
-            auto_rotate=auto_rotate, deva_lines=deva_lines,
-            out_dir=run_dir, stem=page_stem,
-            make_pdf=make_pdf, make_overlay=make_overlay,
-            make_txt=make_txt, make_json=True, make_md=make_md)))
+    cap = PAGE_CAP if page_cap is None else page_cap
+    first = None          # page 1's DocumentResult (its image is restored.png)
+    ocr_results = []      # every page's OCRResult, in order
+    combined = None       # SearchablePdfWriter once a second page exists
+    combined_path = os.path.join(run_dir, "combined.pdf")
+    try:
+        for n, (idx, img_bgr) in enumerate(
+                _iter_pages(upload_path, kind, all_pages, page_cap), start=1):
+            if check:
+                check()
+            if progress:
+                progress(n, total, f"Reading page {n} of {total}"
+                         if total > 1 else "Reading the page")
+            page_stem = stem if n == 1 else f"{stem}_p{idx:03d}"
+            page_result = run_document_pipeline(
+                img_bgr, backend=backend, deskew=deskew, lang=lang,
+                auto_rotate=auto_rotate, deva_lines=deva_lines,
+                out_dir=run_dir, stem=page_stem,
+                make_pdf=make_pdf, make_overlay=make_overlay,
+                make_txt=make_txt, make_json=True, make_md=make_md)
+            del img_bgr
+            if n == 1:
+                first = page_result
+            else:
+                if combined is None:
+                    combined = SearchablePdfWriter(combined_path, title=stem)
+                    combined.add_page(first.display_bgr, first.ocr.tokens, 200)
+                combined.add_page(page_result.display_bgr,
+                                  page_result.ocr.tokens, 200)
+            ocr_results.append(page_result.ocr)
+        if check:
+            check()
+        if progress and total > 1:
+            progress(total, total, "Writing the combined files")
+        if combined is not None:
+            combined.close()
+            combined = None
+    finally:
+        if combined is not None:  # stopped mid-run: drop the partial PDF
+            combined.discard()
 
-    _, result = results[0]
+    if first is None:
+        raise PipelineError("Could not read that file.")
+    result = first
+    n_pages = len(ocr_results)
 
     # Canonical page-1 artifacts -------------------------------------------
     cv2.imwrite(os.path.join(run_dir, "restored.png"), result.display_bgr)
@@ -215,19 +300,14 @@ def process_page(upload_path: str, run_dir: str, run_id: str, *,
     }
 
     # Multi-page combined outputs ------------------------------------------
-    if len(results) > 1:
-        write_searchable_pdf_pages(
-            os.path.join(run_dir, "combined.pdf"),
-            [(r.display_bgr, r.ocr.tokens, 200) for _s, r in results],
-            title=stem)
+    if n_pages > 1:
         with open(os.path.join(run_dir, "combined.txt"), "w",
                   encoding="utf-8") as f:
-            f.write("\n\n".join(r.ocr.text for _s, r in results) + "\n")
+            f.write("\n\n".join(r.text for r in ocr_results) + "\n")
         if make_md:
             write_combined_transcript_md(
-                os.path.join(run_dir, "combined.md"),
-                [r.ocr for _s, r in results], title=stem)
-        files["combined.pdf"] = os.path.join(run_dir, "combined.pdf")
+                os.path.join(run_dir, "combined.md"), ocr_results, title=stem)
+        files["combined.pdf"] = combined_path
         files["combined.txt"] = os.path.join(run_dir, "combined.txt")
         if make_md:
             files["combined.md"] = os.path.join(run_dir, "combined.md")
@@ -250,9 +330,9 @@ def process_page(upload_path: str, run_dir: str, run_id: str, *,
         "deskew": deskew,
         "auto_rotate": auto_rotate,
         "all_pages": all_pages,
-        "pages_processed": len(results),
-        "pages_capped": bool(all_pages and len(results) >= PAGE_CAP),
-        "page_cap": PAGE_CAP,
+        "pages_processed": n_pages,
+        "pages_capped": bool(all_pages and cap and n_pages >= cap),
+        "page_cap": cap,
     }
 
     return {

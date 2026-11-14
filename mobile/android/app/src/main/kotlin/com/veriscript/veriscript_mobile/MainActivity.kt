@@ -1,5 +1,8 @@
 package com.veriscript.veriscript_mobile
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import com.veriscript.veriscript_mobile.scan.ScanCameraPlugin
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -15,6 +18,29 @@ class MainActivity : FlutterActivity() {
     override fun configureFlutterEngine(engine: FlutterEngine) {
         super.configureFlutterEngine(engine)
         engine.plugins.add(ScanCameraPlugin())
+        // Progress notification that keeps long batches alive (ProcessingService).
+        MethodChannel(engine.dartExecutor.binaryMessenger, "veriscript/background")
+            .setMethodCallHandler { call, result ->
+                val title = call.argument<String>("title") ?: "VeriScript"
+                val text = call.argument<String>("text") ?: ""
+                val permille = call.argument<Int>("permille") ?: -1
+                when (call.method) {
+                    "start" -> {
+                        askForNotificationsOnce()
+                        ProcessingService.start(applicationContext, title, text, permille)
+                        result.success(null)
+                    }
+                    "update" -> {
+                        ProcessingService.update(applicationContext, title, text, permille)
+                        result.success(null)
+                    }
+                    "stop" -> {
+                        ProcessingService.stop(applicationContext)
+                        result.success(null)
+                    }
+                    else -> result.notImplemented()
+                }
+            }
         val channel = MethodChannel(engine.dartExecutor.binaryMessenger, "veriscript/offline")
         channel.setMethodCallHandler { call, result ->
             if (call.method == "cancel") {
@@ -47,7 +73,19 @@ class MainActivity : FlutterActivity() {
             }
         }
     }
+    /** Android 13+: progress notifications need permission; ask once. */
+    private fun askForNotificationsOnce() {
+        if (Build.VERSION.SDK_INT < 33) return
+        if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) return
+        val prefs = getSharedPreferences("veriscript_native", MODE_PRIVATE)
+        if (prefs.getBoolean("asked_notifications", false)) return
+        prefs.edit().putBoolean("asked_notifications", true).apply()
+        requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 41)
+    }
+
     override fun onDestroy() {
+        // The work lives in this engine; once it is gone there is nothing to keep alive.
+        ProcessingService.stop(applicationContext)
         cancelled.set(true)
         worker.execute { rapidOcr?.close(); rapidOcr = null }
         worker.shutdown()

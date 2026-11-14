@@ -75,6 +75,7 @@ export interface RunPayload {
   transcript: string;
   status_line: string;
   files: RunFiles;
+  /** Seconds the server keeps the files; 0 = until deleted (desktop). */
   expires_in: number;
 }
 
@@ -113,6 +114,23 @@ export interface ExportResponse {
   shared: number;
 }
 
+/** GET /api/jobs/{id}: a document run in the background queue. */
+export interface JobStatus {
+  job_id: string;
+  status: "queued" | "running" | "done" | "failed" | "cancelled";
+  /** Plain-language step, e.g. "Reading page 3 of 12". */
+  stage: string;
+  page: number;
+  pages: number;
+  /** 1 = next to run; only while queued. */
+  position?: number;
+  cancel_requested: boolean;
+  elapsed: number;
+  result?: RunPayload;
+  error?: string;
+  error_status?: number;
+}
+
 export interface Health {
   ok: boolean;
   version: string;
@@ -126,8 +144,11 @@ export interface Health {
     video_max_seconds: number;
     pages_per_client: number;
     max_image_megapixels: number;
+    /** PDF pages per run with "all pages"; 0 = no limit (desktop). */
     max_pages: number;
+    /** 0 = results are kept until deleted (desktop). */
     ttl_minutes: number;
+    queued?: number;
     rate_max: number;
     rate_window_s: number;
     auth: boolean;

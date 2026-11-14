@@ -1,8 +1,11 @@
 """FastAPI application: the VeriScript web studio.
 
 - Serves the built frontend (webapp/frontend/dist) when present.
-- POST /api/restore  → run the document pipeline on one uploaded page.
-- GET  /api/runs/{id}/files/{name} → artifacts of a finished run.
+- POST   /api/jobs        → queue an upload; returns at once (202) with a job.
+- GET    /api/jobs/{id}   → status, per-page progress, and the result when done.
+- DELETE /api/jobs/{id}   → cancel; the job stops between pages.
+- POST   /api/restore     → the same, waiting for the result (scripts, client).
+- GET    /api/runs/{id}/files/{name} → artifacts of a finished run.
 """
 from __future__ import annotations
 
@@ -24,8 +27,10 @@ from fastapi.staticfiles import StaticFiles
 
 from .config import settings
 from .compression import SelectiveGZipMiddleware
+from . import diagnostics as _diagnostics  # noqa: F401 - installs the recent-log handler
+from .jobs import Job, JobCancelled, JobManager, JobRejected
 from .pipeline import (PAGE_CAP, PipelineError, collect_run_summary,
-                       process_page)
+                       pages_to_process, process_page)
 from .security import (DailyKeyedQuota, DailyQuota, DesktopSessionMiddleware,
                        RateLimiter, SecurityHeadersMiddleware, client_key,
                        http_exception_handler, new_run_id, require_auth,
@@ -145,18 +150,7 @@ def _parse_corrections_body(body: Optional[Dict[str, Any]]):
 
 def _count_pages(kind: str, path: str, all_pages: bool) -> int:
     """Quota units for one request: a 10-page PDF costs 10 pages, not 1 run."""
-    if kind != "pdf" or not all_pages:
-        return 1
-    try:
-        import pypdfium2 as pdfium
-
-        doc = pdfium.PdfDocument(path)
-        try:
-            return max(1, min(len(doc), PAGE_CAP))
-        finally:
-            doc.close()
-    except Exception:  # noqa: BLE001 - best-effort count; validation handles bad files
-        return PAGE_CAP
+    return pages_to_process(path, kind, all_pages)
 
 
 store = RunStore(RUNS_DIR, settings.run_ttl_seconds)
@@ -166,6 +160,7 @@ page_quota = DailyQuota(settings.daily_pages)
 client_pages = DailyKeyedQuota(settings.pages_per_client)
 _worker_sem = threading.Semaphore(settings.max_concurrent)
 _worker_busy = threading.Event()
+jobs = JobManager(_worker_sem, _worker_busy, max_queued=settings.max_queued_jobs)
 
 VERSION = "0.1.0"
 
@@ -259,7 +254,8 @@ def create_app() -> FastAPI:
                 "video_max_seconds": settings.video_max_seconds,
                 "max_image_megapixels": settings.max_image_megapixels,
                 "max_pages": PAGE_CAP,
-                "ttl_minutes": settings.run_ttl_minutes,
+                "ttl_minutes": max(0, settings.run_ttl_minutes),
+                "queued": jobs.queued_count(),
                 "rate_max": settings.rate_max_in_window,
                 "rate_window_s": settings.rate_window_s,
                 "auth": settings.auth_enabled,
@@ -273,19 +269,29 @@ def create_app() -> FastAPI:
             },
         }
 
-    # -- restore -----------------------------------------------------------
-    @app.post("/api/restore", dependencies=[Depends(require_auth)])
-    async def restore(request: Request,
-                      file: UploadFile = File(...),
-                      lang: str = Form("ne"),
-                      deskew: str = Form("0"),
-                      ocr: str = Form("auto"),
-                      overlay: str = Form("1"),
-                      pdf: str = Form("1"),
-                      txt: str = Form("1"),
-                      md: str = Form("1"),
-                      all_pages: str = Form("0"),
-                      auto_rotate: str = Form("1")) -> JSONResponse:
+    # -- diagnostics (desktop only) ------------------------------------------
+    @app.get("/api/diagnostics", dependencies=[Depends(require_auth)])
+    async def diagnostics() -> Dict[str, Any]:
+        """Versions, limits, recent jobs and warnings for a bug report.
+
+        Local mode only: on a shared demo the recent errors could belong to
+        other visitors. Nothing is sent anywhere; the person copies it."""
+        if settings.mode != "local":
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
+                                detail="Not available on the shared demo.")
+        from . import diagnostics as diag
+
+        data = diag.report(version=VERSION, settings=settings, jobs=jobs)
+        return {**data, "text": diag.as_text(data)}
+
+    # -- jobs --------------------------------------------------------------
+    async def _submit(request: Request, file: UploadFile, *, lang: str,
+                      deskew: str, ocr: str, overlay: str, pdf: str, txt: str,
+                      md: str, all_pages: str, auto_rotate: str) -> Job:
+        """Validate, store and charge an upload, then queue it as a job.
+
+        Never blocks the event loop: the job runs on the job worker, which
+        holds the shared worker slot only while the pipeline really runs."""
         allowed, retry_after = limiter.check(client_key(request))
         if not allowed:
             raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS,
@@ -323,11 +329,8 @@ def create_app() -> FastAPI:
 
             with open(upload_path, "rb") as f:
                 head = f.read(64)
-            try:
-                kind = validate_upload(file.filename, file.content_type, head,
-                                       upload_path)
-            except HTTPException:
-                raise
+            kind = validate_upload(file.filename, file.content_type, head,
+                                   upload_path)
         except HTTPException:
             shutil.rmtree(run_dir, ignore_errors=True)
             raise
@@ -365,55 +368,117 @@ def create_app() -> FastAPI:
                 detail="The demo's daily budget is used up. Try again after midnight UTC.",
                 headers={"Retry-After": str(retry_after)})
 
-        # Single heavy worker: wait briefly, then shed load.
-        acquired = _worker_sem.acquire(timeout=settings.queue_wait_s)
-        if not acquired:
+        options = dict(lang=None if lang == "en" else lang, deskew=deskew_flag,
+                       kind=kind, ocr=ocr,
+                       make_overlay=_flag(overlay), make_pdf=_flag(pdf),
+                       make_txt=_flag(txt), make_md=_flag(md),
+                       all_pages=all_pages_flag,
+                       auto_rotate=_flag(auto_rotate))
+
+        def work(job: Job) -> Dict[str, Any]:
+            try:
+                try:
+                    payload = process_page(upload_path, run_dir, run_id,
+                                           progress=job.progress,
+                                           check=job.check, **options)
+                except PipelineError as exc:
+                    raise JobRejected(str(exc)) from exc
+            finally:
+                try:
+                    os.remove(upload_path)
+                except OSError:
+                    pass
+            store.write_manifest(run_id, {"meta": payload.get("meta", {}),
+                                          "files": list(PUBLIC_FILES.keys())})
+            payload["expires_in"] = settings.run_ttl_seconds
+            return payload
+
+        job = Job(id=run_id, run_dir=run_dir, work=work,
+                  timeout_s=settings.process_timeout_s)
+        job.pages = pages
+        try:
+            jobs.submit(job)
+        except OverflowError:
             shutil.rmtree(run_dir, ignore_errors=True)
             raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                                detail="Another page is still being read. "
-                                       "Try again in a moment.",
+                                detail="Too many files are waiting. Try again "
+                                       "when some have finished.",
                                 headers={"Retry-After": "10"})
-        _worker_busy.set()
+        return job
+
+    def _job_or_404(job_id: str) -> Job:
+        job = jobs.get(job_id) if RUN_ID_RE.match(job_id or "") else None
+        if job is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
+                                detail="No such job. It may have finished long ago; "
+                                       "run the file again.")
+        return job
+
+    @app.post("/api/jobs", dependencies=[Depends(require_auth)],
+              status_code=status.HTTP_202_ACCEPTED)
+    async def create_job(request: Request,
+                         file: UploadFile = File(...),
+                         lang: str = Form("ne"),
+                         deskew: str = Form("0"),
+                         ocr: str = Form("auto"),
+                         overlay: str = Form("1"),
+                         pdf: str = Form("1"),
+                         txt: str = Form("1"),
+                         md: str = Form("1"),
+                         all_pages: str = Form("0"),
+                         auto_rotate: str = Form("1")) -> JSONResponse:
+        job = await _submit(request, file, lang=lang, deskew=deskew, ocr=ocr,
+                            overlay=overlay, pdf=pdf, txt=txt, md=md,
+                            all_pages=all_pages, auto_rotate=auto_rotate)
+        return JSONResponse(job.public(jobs.position(job)),
+                            status_code=status.HTTP_202_ACCEPTED,
+                            headers={"Location": f"/api/jobs/{job.id}"})
+
+    @app.get("/api/jobs/{job_id}", dependencies=[Depends(require_auth)])
+    async def get_job(job_id: str) -> JSONResponse:
+        job = _job_or_404(job_id)
+        return JSONResponse(job.public(jobs.position(job)),
+                            headers={"Cache-Control": "no-store"})
+
+    @app.delete("/api/jobs/{job_id}", dependencies=[Depends(require_auth)])
+    async def cancel_job(job_id: str) -> JSONResponse:
+        job = jobs.cancel(_job_or_404(job_id).id)
+        return JSONResponse(job.public(jobs.position(job)))
+
+    @app.post("/api/restore", dependencies=[Depends(require_auth)])
+    async def restore(request: Request,
+                      file: UploadFile = File(...),
+                      lang: str = Form("ne"),
+                      deskew: str = Form("0"),
+                      ocr: str = Form("auto"),
+                      overlay: str = Form("1"),
+                      pdf: str = Form("1"),
+                      txt: str = Form("1"),
+                      md: str = Form("1"),
+                      all_pages: str = Form("0"),
+                      auto_rotate: str = Form("1")) -> JSONResponse:
+        """Queue the upload and wait for it (scripts and the typed client).
+
+        Waiting polls the job without blocking the event loop. If the caller
+        goes away, the job is cancelled; it then stops between pages."""
+        job = await _submit(request, file, lang=lang, deskew=deskew, ocr=ocr,
+                            overlay=overlay, pdf=pdf, txt=txt, md=md,
+                            all_pages=all_pages, auto_rotate=auto_rotate)
         try:
-            loop = asyncio.get_running_loop()
-            payload = await asyncio.wait_for(
-                loop.run_in_executor(None, lambda: process_page(
-                    upload_path, run_dir, run_id,
-                    lang=None if lang == "en" else lang, deskew=deskew_flag,
-                    kind=kind, ocr=ocr,
-                    make_overlay=_flag(overlay), make_pdf=_flag(pdf),
-                    make_txt=_flag(txt), make_md=_flag(md),
-                    all_pages=all_pages_flag,
-                    auto_rotate=_flag(auto_rotate))),
-                timeout=settings.process_timeout_s)
-        except asyncio.TimeoutError:
-            _LOG.warning("restore timed out after %.0fs (run=%s)",
-                         settings.process_timeout_s, run_id)
-            shutil.rmtree(run_dir, ignore_errors=True)
+            while not job.done.is_set():
+                await asyncio.sleep(0.05)
+        except asyncio.CancelledError:
+            jobs.cancel(job.id)
+            raise
+        if job.status == "done":
+            return JSONResponse(job.result)
+        if job.status == "cancelled":
+            raise HTTPException(status_code=499, detail="The run was cancelled.")
+        if job.error_status == 504:
             raise HTTPException(status_code=status.HTTP_504_GATEWAY_TIMEOUT,
                                 detail="Processing timed out for this page.")
-        except PipelineError as exc:
-            _LOG.warning("pipeline rejected the page (run=%s): %s", run_id, exc)
-            shutil.rmtree(run_dir, ignore_errors=True)
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
-        except Exception:
-            _LOG.exception("restore failed (run=%s)", run_id)
-            shutil.rmtree(run_dir, ignore_errors=True)
-            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                                detail="The pipeline failed on this page. "
-                                       "Try a cleaner scan or a different file.")
-        finally:
-            _worker_busy.clear()
-            _worker_sem.release()
-            try:
-                os.remove(upload_path)
-            except OSError:
-                pass
-
-        store.write_manifest(run_id, {"meta": payload.get("meta", {}),
-                                      "files": list(PUBLIC_FILES.keys())})
-        payload["expires_in"] = settings.run_ttl_seconds
-        return JSONResponse(payload)
+        raise HTTPException(status_code=job.error_status,
+                            detail=job.error or "The run failed.")
 
     # -- artifacts ---------------------------------------------------------
     @app.get("/api/runs/{run_id}/files.zip", dependencies=[Depends(require_auth)])

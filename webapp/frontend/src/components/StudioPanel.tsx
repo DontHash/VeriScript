@@ -1,6 +1,9 @@
-import { createEffect, For, Show } from "solid-js";
+import { createEffect, createSignal, For, Show } from "solid-js";
+import { fetchDiagnostics } from "../lib/api";
+import { announce } from "../lib/announce";
+import { isLocal } from "../lib/health";
 import { DropZone } from "./DropZone";
-import { EXAMPLE_FILES, limitsLine, type StudioState } from "../lib/studio-state";
+import { EXAMPLE_FILES, jobLine, limitsLine, type StudioState } from "../lib/studio-state";
 import type { Lang, OcrEngine } from "../lib/types";
 
 /** The studio controls: drop a page, pick an example, set options, run.
@@ -10,6 +13,18 @@ export function StudioPanel(props: { state: StudioState; compact?: boolean }) {
   const running = () => s.phase() === "running";
   const suffix = props.compact ? "hero" : "page";
   let alertEl: HTMLDivElement | undefined;
+  const [copied, setCopied] = createSignal(false);
+
+  /** Desktop: put the local diagnostics report on the clipboard. */
+  const copyDiagnostics = async () => {
+    try {
+      await navigator.clipboard.writeText(await fetchDiagnostics());
+      setCopied(true);
+      announce("Diagnostics copied. Paste them into your bug report.");
+    } catch {
+      announce("Could not copy the diagnostics.");
+    }
+  };
 
   // Move focus to a new error so keyboard and screen-reader users land on it.
   createEffect(() => {
@@ -193,12 +208,31 @@ export function StudioPanel(props: { state: StudioState; compact?: boolean }) {
           <button class="btn btn--ghost btn--small" type="button" onClick={() => s.cancel()}>
             Cancel
           </button>
-          <div class="progress" role="progressbar" aria-label="Reading the page">
-            <div class="progress__fill" />
-          </div>
-          {/* Ticks 10×/s: visible only, the live region announces start/end. */}
+          <Show
+            when={(s.job()?.pages ?? 0) > 1 && s.job()?.status === "running"}
+            fallback={
+              <div class="progress" role="progressbar" aria-label="Reading the page">
+                <div class="progress__fill" />
+              </div>
+            }
+          >
+            <div
+              class="progress progress--determinate"
+              role="progressbar"
+              aria-label="Pages read"
+              aria-valuemin={0}
+              aria-valuemax={s.job()!.pages}
+              aria-valuenow={Math.max(0, s.job()!.page - 1)}
+            >
+              <div
+                class="progress__fill"
+                style={{ width: `${(100 * Math.max(0, s.job()!.page - 1)) / s.job()!.pages}%` }}
+              />
+            </div>
+          </Show>
+          {/* Polled ~2×/s: visible only; page changes are announced. */}
           <span class="runbar__elapsed" aria-hidden="true">
-            {s.elapsed().toFixed(1)} s
+            {jobLine(s.job())} · {s.elapsed().toFixed(0)} s
           </span>
         </Show>
         <div class="runbar__status">
@@ -212,6 +246,12 @@ export function StudioPanel(props: { state: StudioState; compact?: boolean }) {
       <Show when={s.phase() === "error" && s.error()}>
         <div class="alert" role="alert" tabindex={-1} ref={alertEl}>
           {s.error()}
+          <Show when={isLocal()}>
+            {" "}
+            <button class="btn btn--ghost btn--small" type="button" onClick={copyDiagnostics}>
+              {copied() ? "Diagnostics copied" : "Copy diagnostics"}
+            </button>
+          </Show>
         </div>
       </Show>
     </div>

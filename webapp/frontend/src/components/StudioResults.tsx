@@ -193,8 +193,10 @@ export function StudioResults(props: { state: StudioState }) {
                   </For>
                 </ul>
                 <p class="field__hint">
-                  Run <span class="mono">{result().run_id}</span> · {result().status_line}. Files
-                  are kept for {retentionText(Math.round(result().expires_in / 60))}, then deleted.
+                  Run <span class="mono">{result().run_id}</span> · {result().status_line}.{" "}
+                  {result().expires_in > 0
+                    ? `Files are kept for ${retentionText(Math.round(result().expires_in / 60))}, then deleted.`
+                    : "Files are kept on this computer until you delete them."}
                 </p>
               </div>
             </TabPanel>

@@ -4,6 +4,8 @@ import 'package:camera/camera.dart' show CameraException;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart' show PlatformException;
 
+import 'diagnostics.dart';
+
 /// Turns an exception into one sentence a person can act on.
 ///
 /// Raw exception text ("PlatformException(…)", "FileSystemException: …")
@@ -14,6 +16,7 @@ import 'package:flutter/services.dart' show PlatformException;
 /// are passed through.
 String friendlyError(Object error, String fallback) {
   debugPrint('[error] $fallback — ${error.runtimeType}: $error');
+  ErrorLog.record(fallback, error);
   if (error is StateError) return error.message;
   if (error is CameraException) return _cameraMessage(error.code, fallback);
   if (error is FileSystemException) return _fileMessage(error, fallback);

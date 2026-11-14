@@ -4,6 +4,7 @@ import type {
   CorrectionInput,
   ExportResponse,
   Health,
+  JobStatus,
   Lang,
   OcrEngine,
   RunPayload,
@@ -74,11 +75,7 @@ export interface RestoreOptions {
   outputs: { overlay: boolean; pdf: boolean; txt: boolean; md: boolean };
 }
 
-export async function runRestore(
-  file: File | Blob,
-  opts: RestoreOptions,
-  signal?: AbortSignal,
-): Promise<RunPayload> {
+function restoreForm(file: File | Blob, opts: RestoreOptions): FormData {
   const body = new FormData();
   const name = file instanceof File ? file.name : "example.png";
   body.append("file", file, name);
@@ -91,10 +88,86 @@ export async function runRestore(
   body.append("pdf", opts.outputs.pdf ? "1" : "0");
   body.append("txt", opts.outputs.txt ? "1" : "0");
   body.append("md", opts.outputs.md ? "1" : "0");
+  return body;
+}
 
-  const res = await request("/api/restore", { method: "POST", body, signal });
+/** One-shot: upload and wait for the result (no progress). */
+export async function runRestore(
+  file: File | Blob,
+  opts: RestoreOptions,
+  signal?: AbortSignal,
+): Promise<RunPayload> {
+  const res = await request("/api/restore", {
+    method: "POST",
+    body: restoreForm(file, opts),
+    signal,
+  });
   if (!res.ok) throw await parseError(res);
   return (await res.json()) as RunPayload;
+}
+
+const sleep = (ms: number, signal?: AbortSignal) =>
+  new Promise<void>((resolve, reject) => {
+    const timer = window.setTimeout(resolve, ms);
+    signal?.addEventListener(
+      "abort",
+      () => {
+        window.clearTimeout(timer);
+        reject(new DOMException("Aborted", "AbortError"));
+      },
+      { once: true },
+    );
+  });
+
+export async function cancelJob(jobId: string): Promise<JobStatus | null> {
+  try {
+    const res = await request(`/api/jobs/${jobId}`, { method: "DELETE" });
+    return res.ok ? ((await res.json()) as JobStatus) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Upload as a background job and follow it until it finishes.
+ *
+ *  `onProgress` gets every status (queued position, "Reading page 3 of 12").
+ *  Aborting the signal cancels the job on the server, which stops it between
+ *  pages, then rejects with an AbortError. */
+export async function runJob(
+  file: File | Blob,
+  opts: RestoreOptions,
+  { signal, onProgress }: { signal?: AbortSignal; onProgress?: (s: JobStatus) => void } = {},
+): Promise<RunPayload> {
+  const res = await request("/api/jobs", {
+    method: "POST",
+    body: restoreForm(file, opts),
+    signal,
+  });
+  if (!res.ok) throw await parseError(res);
+  let status = (await res.json()) as JobStatus;
+  const jobId = status.job_id;
+  try {
+    for (;;) {
+      onProgress?.(status);
+      if (status.status === "done" && status.result) return status.result;
+      if (status.status === "failed") {
+        throw new ApiError(
+          status.error || "The run failed. Try again.",
+          status.error_status ?? 500,
+        );
+      }
+      if (status.status === "cancelled") throw new DOMException("Cancelled", "AbortError");
+      await sleep(status.status === "queued" ? 1000 : 400, signal);
+      const next = await request(`/api/jobs/${jobId}`, { signal });
+      if (!next.ok) throw await parseError(next);
+      status = (await next.json()) as JobStatus;
+    }
+  } catch (e) {
+    if (e instanceof DOMException && e.name === "AbortError" && signal?.aborted) {
+      await cancelJob(jobId);
+    }
+    throw e;
+  }
 }
 
 export function formatBytes(bytes: number): string {
@@ -137,6 +210,14 @@ export async function clearMemory(): Promise<{ removed: number; enabled: boolean
   const res = await request("/api/memory/clear", { method: "POST" });
   if (!res.ok) throw await parseError(res);
   return (await res.json()) as { removed: number; enabled: boolean };
+}
+
+/** Desktop only: versions, limits, recent jobs and warnings, as plain text.
+ *  Nothing is sent anywhere; the person copies it into a bug report. */
+export async function fetchDiagnostics(): Promise<string> {
+  const res = await request("/api/diagnostics");
+  if (!res.ok) throw await parseError(res);
+  return ((await res.json()) as { text: string }).text;
 }
 
 export { ApiError };

@@ -88,16 +88,33 @@ export const RUN: RunPayload = {
   expires_in: 3600,
 };
 
-/** Mock the backend. `restore` decides how POST /api/restore answers. */
+/** A finished background job carrying `RUN`. */
+export const JOB_DONE = {
+  job_id: "0123456789abcdef",
+  status: "done",
+  stage: "Done",
+  page: 1,
+  pages: 1,
+  cancel_requested: false,
+  elapsed: 1.2,
+  result: RUN,
+};
+
+/** Mock the backend. `restore` decides how a submitted job ends: POST
+ *  /api/jobs queues it, the first poll of GET /api/jobs/{id} finishes it. */
 export async function mockApi(
   page: Page,
   restore: "ok" | "error" = "ok",
   mode: "demo" | "local" = "demo",
 ) {
   await page.route("**/api/health", (r) => r.fulfill({ json: { ...HEALTH, mode } }));
-  await page.route("**/api/restore", (r) =>
+  await page.route("**/api/jobs", (r) =>
     restore === "ok"
-      ? r.fulfill({ json: RUN })
+      ? r.fulfill({
+          status: 202,
+          json: { ...JOB_DONE, status: "queued", stage: "Waiting for the reader", result: undefined, position: 1 },
+        })
       : r.fulfill({ status: 422, json: { error: "That file is not an image or PDF." } }),
   );
+  await page.route("**/api/jobs/*", (r) => r.fulfill({ json: JOB_DONE }));
 }
