@@ -310,6 +310,18 @@ cloud. Matches the "no VLM default" rule in ROADMAP §8.
 | A5 storage (Android) | `doc:` relative paths, `schemaVersion: 2`, re-homing of old absolute paths. | `test/storage_paths_test.dart` (moved folder, schema-1 migration). |
 | A6 diagnostics | Android Settings → Diagnostics; desktop `/api/diagnostics` (local mode only) and a Copy button on errors. No titles, text or paths. | `test/diagnostics_test.dart`, `test_diagnostics_are_local_only_and_strip_paths`. |
 
+### C1 + D1 results (2026-11-15)
+
+Measured on the API 35 emulator with a new 12 MP camera-proxy pack plus the
+smoke pack; full write-up in
+[evals/comparisons/2026-11-15](../evals/comparisons/2026-11-15/README.md).
+
+| Item | What changed | Result |
+|---|---|---|
+| C1 resolution | Import keeps up to 4096 px (was 2500); the RapidOCR port cuts lines from the full-resolution page. | ML Kit Nepali camera CER 0.040 → 0.027 (all 5 pages better); English unchanged. **Adopted.** |
+| D1 orientation | First tried: native detector + 0/180 classifier. Slower than ML Kit's own reads on the emulator and never confident on Devanagari, so **dropped**. Adopted: read as given, stop when lines look upright, else let line angles pick the next rotation. | ML Kit 10/10 orientation; OCR + import +5% overall (gate ≤ +30%), smoke pages 2–3× faster. RapidOCR on Devanagari keeps the four-way search (its angles cannot tell up from down; not re-run after that change). |
+| RapidOCR memory | ONNX Runtime arena and memory patterns off. | Baseline was killed at 1.7 GB; now 1.0 GB peak over 16 pages, but slower. Arena on reached 1.38 GB on 3 pages: not adopted. RapidOCR speed is open (best measured on a phone). |
+
 ## 4. Sequencing
 
 | Weeks | Track | Depends on |

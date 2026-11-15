@@ -84,7 +84,12 @@ object OfflinePages {
             bitmap.recycle()
         }
     }
-    private fun load(path: String, maxSide: Int = 2500): Bitmap {
+    /** Longest side kept through import, alignment and enhancement.
+     * 4096 keeps a 12 MP photo (4032x3024) at full size: an A4 page filling
+     * the frame stays near 300 DPI. The old 2500 px limit left about 170 DPI
+     * for OCR (docs/TECH_UPGRADE_PLAN.md, C1). */
+    private const val WORKING_MAX_SIDE = 4096
+    private fun load(path: String, maxSide: Int = WORKING_MAX_SIDE): Bitmap {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeFile(path, bounds)
         require(bounds.outWidth > 0 && bounds.outHeight > 0) { "Unsupported or damaged image" }
@@ -157,7 +162,7 @@ object OfflinePages {
         fun distance(a: Point,b: Point) = hypot(a.x-b.x,a.y-b.y)
         val width = max(distance(quad[0],quad[1]),distance(quad[3],quad[2])).roundToInt()
         val height = max(distance(quad[0],quad[3]),distance(quad[1],quad[2])).roundToInt()
-        require(width >= 60 && height >= 60 && width <= 6000 && height <= 6000 && width.toLong()*height <= 12_500_000L) { "Crop is too small or too large" }
+        require(width >= 60 && height >= 60 && width <= 6000 && height <= 6000 && width.toLong()*height <= 16_800_000L) { "Crop is too small or too large" }
         val src = arena.own(MatOfPoint2f(*quad))
         val dst = arena.own(MatOfPoint2f(Point(0.0,0.0),Point(width-1.0,0.0),Point(width-1.0,height-1.0),Point(0.0,height-1.0)))
         val transform = arena.own(Imgproc.getPerspectiveTransform(src,dst))
@@ -461,7 +466,7 @@ object OfflinePages {
             }
         }
         val path = arg(args,"path")
-        val image = load(path,if(method in listOf("dimensions","rotate","digitCrop","crop")) 5000 else 2500)
+        val image = load(path,if(method in listOf("dimensions","rotate","digitCrop","crop")) 5000 else WORKING_MAX_SIDE)
         try {
             val out = args["out"] as? String ?: path
             when(method) {

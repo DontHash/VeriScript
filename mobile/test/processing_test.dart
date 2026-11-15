@@ -101,6 +101,130 @@ void main() {
       expect(closed, isTrue);
     },
   );
+  group('orientation (docs/TECH_UPGRADE_PLAN.md D1)', () {
+    late List<String> nativeCalls;
+    late int reads;
+
+    /// ML Kit reports [angles] on successive reads (the last one repeats).
+    Future<OfflineProcessor> run(List<double> angles) async {
+      final dir = await Directory.systemTemp.createTemp('veriscript-orient-');
+      addTearDown(() => dir.delete(recursive: true));
+      final image = File('${dir.path}/page.jpg')..writeAsStringSync('img');
+      nativeCalls = [];
+      reads = 0;
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        if (call.method == 'vision#closeTextRecognizer') return null;
+        final value = reading();
+        value['blocks'][0]['lines'][0]['angle'] =
+            angles[reads < angles.length ? reads : angles.length - 1];
+        reads++;
+        return value;
+      });
+      messenger.setMockMethodCallHandler(native, (call) async {
+        nativeCalls.add(call.method);
+        switch (call.method) {
+          case 'rotate':
+            await File(call.arguments['out']).writeAsString('rotated');
+            return {'path': call.arguments['out'], 'width': 1200, 'height': 900};
+          case 'dimensions':
+            return {'path': call.arguments['path'], 'width': 1200, 'height': 900};
+        }
+        return null;
+      });
+      final worker = OfflineProcessor('en');
+      final page = ScanPage(
+        id: 'a',
+        source: image.path,
+        path: image.path,
+        width: 900,
+        height: 1200,
+      );
+      await worker.recognize(page, checkDigits: false);
+      expect(page.text, 'Total 128');
+      return worker;
+    }
+
+    test('an upright page is read once', () async {
+      final worker = await run([0]);
+      expect(reads, 1);
+      expect(worker.lastTried, [0]);
+      expect(worker.lastRotation, 0);
+      expect(nativeCalls, isNot(contains('rotate')));
+    });
+
+    test('an upside-down read goes straight to 180', () async {
+      final worker = await run([180, 0]);
+      expect(worker.lastTried, [0, 180]);
+      expect(worker.lastRotation, 180);
+      expect(nativeCalls.where((m) => m == 'rotate').length, 1);
+    });
+
+    test('a sideways read tries the matching quarter turn first', () async {
+      // A line at 270 degrees (-90) is undone by turning 90 clockwise.
+      expect((await run([-90, 0])).lastTried, [0, 90]);
+      expect((await run([90, 0])).lastTried, [0, 270]);
+      // A wrong first quarter turn falls to the opposite one next.
+      expect((await run([-90, 180, 0])).lastTried, [0, 90, 270]);
+    });
+
+    test('nothing upright reads all four and keeps the best', () async {
+      final worker = await run([180]);
+      expect(worker.lastTried.toSet(), {0, 90, 180, 270});
+      expect(reads, 4);
+    });
+
+    test('RapidOCR on Devanagari compares all four rotations', () async {
+      final dir = await Directory.systemTemp.createTemp('veriscript-orient-');
+      addTearDown(() => dir.delete(recursive: true));
+      final image = File('${dir.path}/page.jpg')..writeAsStringSync('img');
+      var reads = 0;
+      messenger.setMockMethodCallHandler(native, (call) async {
+        switch (call.method) {
+          case 'rapidOcr':
+            reads++;
+            return [
+              {
+                'text': 'नेपाल सुन्दर देश हो',
+                'confidence': .9,
+                'angle': 0.0,
+                'bbox': [10, 20, 300, 30],
+              },
+            ];
+          case 'rotate':
+            await File(call.arguments['out']).writeAsString('rotated');
+            return {'path': call.arguments['out'], 'width': 1200, 'height': 900};
+        }
+        return null;
+      });
+      final worker = OfflineProcessor('ne', engine: 'rapidocr');
+      await worker.recognize(
+        ScanPage(id: 'a', source: image.path, path: image.path),
+        checkDigits: false,
+      );
+      expect(reads, 4);
+      expect(worker.lastTried, [0, 90, 180, 270]);
+    });
+
+    test('with no clues, quarter turns come before upside down', () {
+      expect(rotationOrder([]), [90, 270, 180]);
+    });
+  });
+
+  test('looksUpright needs enough text, mostly on upright lines', () {
+    Map<String, dynamic> line(String text, double angle) => {
+      'text': text,
+      'angle': angle,
+      'bbox': [0, 0, 300, 30],
+    };
+    expect(looksUpright([line('Invoice 12345', 2)]), isTrue);
+    expect(looksUpright([line('Invoice 12345', 178)]), isFalse);
+    expect(looksUpright([line('ok', 0)]), isFalse); // too little text
+    expect(
+      looksUpright([line('Invoice 12345 total', 0), line('Total', 180)]),
+      isTrue,
+    );
+  });
+
   test(
     'Successful re-recognition keeps corrections in the recoverable version',
     () async {

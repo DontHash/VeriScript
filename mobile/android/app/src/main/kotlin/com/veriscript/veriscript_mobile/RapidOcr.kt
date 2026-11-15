@@ -45,6 +45,15 @@ class RapidOcr(private val context: Context) : AutoCloseable {
         OrtSession.SessionOptions().use { options ->
             options.setIntraOpNumThreads(2)
             options.setInterOpNumThreads(1)
+            // Line widths and page sizes change on every call. With the CPU
+            // arena and memory patterns on, ONNX Runtime keeps the largest
+            // buffers it has seen; on a 2.5 GB emulator the app grew past
+            // 1.7 GB and the low-memory killer stopped it (2026-11-15
+            // baseline). Off: 16 pages peaked at 1.0 GB. The arena is faster
+            // per read but reached 1.38 GB on 3 pages even with bucketed
+            // widths, so this preview reader trades speed for not being killed.
+            options.setCPUArenaAllocator(false)
+            options.setMemoryPatternOptimization(false)
             env.createSession(file.path, options)
         }
     }
@@ -57,13 +66,19 @@ class RapidOcr(private val context: Context) : AutoCloseable {
                 out[c * height * width + i] = (pixels[i * 3 + c].toInt() and 255) / 127.5f - 1f
         }
     }
-    private fun infer(session: OrtSession, values: FloatArray, shape: LongArray): Pair<FloatArray, LongArray> {
+    private fun infer(session: OrtSession, values: FloatArray, shape: LongArray): Pair<FloatArray, LongArray> =
+        inferWith(session, values, shape) { buffer, dims ->
+            Pair(FloatArray(buffer.remaining()).also { buffer.get(it) }, dims)
+        }
+
+    /** Runs [session] and hands [read] the output without copying it to the
+     * Java heap (recognizer outputs are batch x steps x dictionary floats). */
+    private fun <R> inferWith(session: OrtSession, values: FloatArray, shape: LongArray,
+                              read: (FloatBuffer, LongArray) -> R): R {
         OnnxTensor.createTensor(env, FloatBuffer.wrap(values), shape).use { input ->
             session.run(mapOf(session.inputNames.first() to input)).use { result ->
                 val output = result[0] as OnnxTensor
-                val dims = (output.info as TensorInfo).shape
-                val buffer = output.floatBuffer
-                return Pair(FloatArray(buffer.remaining()).also { buffer.get(it) }, dims)
+                return read(output.floatBuffer, (output.info as TensorInfo).shape)
             }
         }
     }
@@ -143,6 +158,17 @@ class RapidOcr(private val context: Context) : AutoCloseable {
         if (h.toDouble()/w >= 1.5) Core.rotate(out,out,Core.ROTATE_90_COUNTERCLOCKWISE)
         return out
     }
+    /** Probability (0..1) that a horizontal line crop is upside down. */
+    private fun upsideDown(image: Mat, a: Arena): Float {
+        val clsWidth = min(192, ceil(48.0 * image.cols() / image.rows()).toInt())
+        val clsData = FloatArray(3 * 48 * 192)
+        val pixels = tensor(image, 48, clsWidth, a)
+        for (c in 0..2) for (y in 0 until 48)
+            System.arraycopy(pixels, c * 48 * clsWidth + y * clsWidth, clsData, c * 48 * 192 + y * 192, clsWidth)
+        val (cls, _) = infer(session("ch_ppocr_mobile_v2.0_cls_mobile.onnx"), clsData, longArrayOf(1, 3, 48, 192))
+        return cls[1]
+    }
+
     private fun recognize(crops: List<Mat>, english: Boolean, cancel: AtomicBoolean): List<Triple<String,Double,Boolean>> {
         val rec = session(if (english) "PP-OCRv6_rec_small.onnx" else "devanagari_PP-OCRv5_rec_mobile.onnx")
         // Python splitlines() ignores a terminal newline and CRLF delimiters.
@@ -160,13 +186,7 @@ class RapidOcr(private val context: Context) : AutoCloseable {
                 for ((b,index) in batch.withIndex()) {
                     val image = crops[index]
                     if (english) {
-                        val clsWidth = min(192, ceil(48.0 * image.cols()/image.rows()).toInt())
-                        val clsData = FloatArray(3*48*192)
-                        val pixels = tensor(image,48,clsWidth,a)
-                        for(c in 0..2) for(y in 0 until 48)
-                            System.arraycopy(pixels,c*48*clsWidth+y*clsWidth,clsData,c*48*192+y*192,clsWidth)
-                        val (cls,_) = infer(session("ch_ppocr_mobile_v2.0_cls_mobile.onnx"), clsData,longArrayOf(1,3,48,192))
-                        if (cls[1] > .9f) {
+                        if (upsideDown(image, a) > .9f) {
                             Core.rotate(image,image,Core.ROTATE_180)
                             flipped[index] = true
                         }
@@ -176,21 +196,26 @@ class RapidOcr(private val context: Context) : AutoCloseable {
                     for(c in 0..2) for(y in 0 until 48)
                         System.arraycopy(pixels,c*48*resizedW+y*resizedW,input,b*3*48*width+c*48*width+y*width,resizedW)
                 }
-                val (output,shape) = infer(rec,input,longArrayOf(batch.size.toLong(),3,48,width.toLong()))
-                val steps = shape[1].toInt(); val chars = shape[2].toInt()
-                require(chars == alphabet.size) { "OCR dictionary does not match model" }
-                for ((b,index) in batch.withIndex()) {
-                    val text = StringBuilder(); var confidence = 0.0; var count = 0; var last = -1
-                    for (t in 0 until steps) {
-                        val offset = (b*steps+t)*chars
-                        var best = 0
-                        for(c in 1 until chars) if(output[offset+c]>output[offset+best]) best=c
-                        if(best != 0 && best != last) {
-                            text.append(alphabet[best]); confidence += output[offset+best]; count++
+                inferWith(rec,input,longArrayOf(batch.size.toLong(),3,48,width.toLong())) { output, shape ->
+                    val steps = shape[1].toInt(); val chars = shape[2].toInt()
+                    require(chars == alphabet.size) { "OCR dictionary does not match model" }
+                    for ((b,index) in batch.withIndex()) {
+                        val text = StringBuilder(); var confidence = 0.0; var count = 0; var last = -1
+                        for (t in 0 until steps) {
+                            val offset = (b*steps+t)*chars
+                            var best = 0
+                            var bestValue = output.get(offset)
+                            for(c in 1 until chars) {
+                                val value = output.get(offset+c)
+                                if(value>bestValue) { best=c; bestValue=value }
+                            }
+                            if(best != 0 && best != last) {
+                                text.append(alphabet[best]); confidence += bestValue; count++
+                            }
+                            last=best
                         }
-                        last=best
+                        results[index] = Triple(text.toString(), if(count>0) confidence/count else 0.0, flipped[index])
                     }
-                    results[index] = Triple(text.toString(), if(count>0) confidence/count else 0.0, flipped[index])
                 }
             }
         }
@@ -224,7 +249,17 @@ class RapidOcr(private val context: Context) : AutoCloseable {
                 Core.copyMakeBorder(resized, it, padding, padding, 0, 0, Core.BORDER_CONSTANT, Scalar.all(0.0))
             } else resized
             val boxes = detect(image,cancel)
-            val crops = boxes.map { crop(image,it,a) }
+            // Detect on the bounded copy (fast), but cut each line from the
+            // full-resolution page: small print keeps its strokes instead of
+            // being read from a 2000 px thumbnail (docs/TECH_UPGRADE_PLAN.md C1).
+            val fromOriginal = padding == 0 && (ratioW > 1.0 || ratioH > 1.0)
+            val crops = boxes.map { box ->
+                if (fromOriginal) crop(original, box.map {
+                    Point((it.x * ratioW).coerceIn(0.0, original.cols() - 1.0),
+                        (it.y * ratioH).coerceIn(0.0, original.rows() - 1.0))
+                }.toTypedArray(), a)
+                else crop(image, box, a)
+            }
             val texts = recognize(crops,args["language"]=="en",cancel)
             check(cancel)
             boxes.indices.filter { texts[it].second >= .5 && texts[it].first.isNotEmpty() }.map { i ->

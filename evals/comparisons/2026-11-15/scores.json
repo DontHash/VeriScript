@@ -1,0 +1,666 @@
+{
+  "pages": 16,
+  "engines": {
+    "mobile_mlkit_base": {
+      "status": "complete",
+      "missing": [],
+      "pages": [
+        {
+          "id": "cam_ne_8pt",
+          "family": "camera-proxy",
+          "cer": 0.045364891518737675,
+          "wer": 0.29333333333333333,
+          "bag_cer": 0.11439842209072978,
+          "digit_cer": 0.08641975308641975,
+          "digit_exact": false,
+          "seconds": 15.407,
+          "rotation_ok": true
+        },
+        {
+          "id": "cam_ne_7pt_soft",
+          "family": "camera-proxy",
+          "cer": 0.045364891518737675,
+          "wer": 0.26666666666666666,
+          "bag_cer": 0.11045364891518737,
+          "digit_cer": 0.07407407407407407,
+          "digit_exact": false,
+          "seconds": 14.157,
+          "rotation_ok": true
+        },
+        {
+          "id": "cam_ne_8pt_r90",
+          "family": "camera-proxy",
+          "cer": 0.03747534516765286,
+          "wer": 0.18666666666666668,
+          "bag_cer": 0.09861932938856016,
+          "digit_cer": 0.06172839506172839,
+          "digit_exact": false,
+          "seconds": 11.503,
+          "rotation_ok": true
+        },
+        {
+          "id": "cam_ne_8pt_r180",
+          "family": "camera-proxy",
+          "cer": 0.03155818540433925,
+          "wer": 0.18666666666666668,
+          "bag_cer": 0.08086785009861933,
+          "digit_cer": 0.06172839506172839,
+          "digit_exact": false,
+          "seconds": 4.901,
+          "rotation_ok": true
+        },
+        {
+          "id": "cam_ne_8pt_r270",
+          "family": "camera-proxy",
+          "cer": 0.04142011834319527,
+          "wer": 0.26666666666666666,
+          "bag_cer": 0.17751479289940827,
+          "digit_cer": 0.06172839506172839,
+          "digit_exact": false,
+          "seconds": 5.26,
+          "rotation_ok": true
+        },
+        {
+          "id": "cam_en_8pt",
+          "family": "camera-proxy",
+          "cer": 0.0,
+          "wer": 0.0,
+          "bag_cer": 0.0,
+          "digit_cer": 0.0,
+          "digit_exact": true,
+          "seconds": 5.144,
+          "rotation_ok": true
+        },
+        {
+          "id": "cam_en_7pt_soft",
+          "family": "camera-proxy",
+          "cer": 0.002380952380952381,
+          "wer": 0.01639344262295082,
+          "bag_cer": 0.002380952380952381,
+          "digit_cer": 0.009345794392523364,
+          "digit_exact": false,
+          "seconds": 5.104,
+          "rotation_ok": true
+        },
+        {
+          "id": "cam_en_8pt_r90",
+          "family": "camera-proxy",
+          "cer": 0.002380952380952381,
+          "wer": 0.01639344262295082,
+          "bag_cer": 0.002380952380952381,
+          "digit_cer": 0.0,
+          "digit_exact": true,
+          "seconds": 10.432,
+          "rotation_ok": true
+        },
+        {
+          "id": "cam_en_8pt_r180",
+          "family": "camera-proxy",
+          "cer": 0.0,
+          "wer": 0.0,
+          "bag_cer": 0.0,
+          "digit_cer": 0.0,
+          "digit_exact": true,
+          "seconds": 14.875,
+          "rotation_ok": true
+        },
+        {
+          "id": "cam_en_8pt_r270",
+          "family": "camera-proxy",
+          "cer": 0.0,
+          "wer": 0.0,
+          "bag_cer": 0.0,
+          "digit_cer": 0.0,
+          "digit_exact": true,
+          "seconds": 14.47,
+          "rotation_ok": true
+        },
+        {
+          "id": "ne_clean",
+          "family": "synthetic",
+          "cer": 0.033444816053511704,
+          "wer": 0.25,
+          "bag_cer": 0.13043478260869565,
+          "digit_cer": 0.05405405405405406,
+          "digit_exact": false,
+          "seconds": 9.021
+        },
+        {
+          "id": "ne_shadow",
+          "family": "synthetic",
+          "cer": 0.026755852842809364,
+          "wer": 0.18181818181818182,
+          "bag_cer": 0.026755852842809364,
+          "digit_cer": 0.0,
+          "digit_exact": true,
+          "seconds": 10.025
+        },
+        {
+          "id": "en_clean",
+          "family": "synthetic",
+          "cer": 0.0,
+          "wer": 0.0,
+          "bag_cer": 0.0,
+          "digit_cer": 0.0,
+          "digit_exact": true,
+          "seconds": 10.305
+        },
+        {
+          "id": "en_rotated",
+          "family": "synthetic",
+          "cer": 0.005555555555555556,
+          "wer": 0.04,
+          "bag_cer": 0.005555555555555556,
+          "digit_cer": 0.0,
+          "digit_exact": true,
+          "seconds": 10.13
+        },
+        {
+          "id": "saktidharasukla1930_p01",
+          "family": "historical-hindi",
+          "cer": 0.5172413793103449,
+          "wer": 1.0185185185185186,
+          "bag_cer": 0.7011494252873564,
+          "digit_cer": 1.1428571428571428,
+          "digit_exact": false,
+          "seconds": 15.217
+        },
+        {
+          "id": "simha1914_p000_1",
+          "family": "historical-hindi",
+          "cer": 0.4067796610169492,
+          "wer": 0.7101449275362319,
+          "bag_cer": 0.49878934624697335,
+          "digit_cer": 1.5714285714285714,
+          "digit_exact": false,
+          "seconds": 8.858
+        }
+      ],
+      "mean_cer": 0.07473266259335863,
+      "by_family": {
+        "camera-proxy": 0.020594533671456746,
+        "historical-hindi": 0.462010520163647,
+        "synthetic": 0.016439056112969155
+      },
+      "mean_seconds": 10.300562500000002,
+      "orientation_correct": "10/10"
+    },
+    "mobile_mlkit_new2": {
+      "status": "complete",
+      "missing": [],
+      "pages": [
+        {
+          "id": "cam_ne_8pt",
+          "family": "camera-proxy",
+          "cer": 0.02564102564102564,
+          "wer": 0.17333333333333334,
+          "bag_cer": 0.1222879684418146,
+          "digit_cer": 0.037037037037037035,
+          "digit_exact": false,
+          "seconds": 3.911,
+          "rotation_ok": true
+        },
+        {
+          "id": "cam_ne_7pt_soft",
+          "family": "camera-proxy",
+          "cer": 0.029585798816568046,
+          "wer": 0.18666666666666668,
+          "bag_cer": 0.08284023668639054,
+          "digit_cer": 0.04938271604938271,
+          "digit_exact": false,
+          "seconds": 22.748,
+          "rotation_ok": true
+        },
+        {
+          "id": "cam_ne_8pt_r90",
+          "family": "camera-proxy",
+          "cer": 0.027613412228796843,
+          "wer": 0.18666666666666668,
+          "bag_cer": 0.07889546351084813,
+          "digit_cer": 0.04938271604938271,
+          "digit_exact": false,
+          "seconds": 16.499,
+          "rotation_ok": true
+        },
+        {
+          "id": "cam_ne_8pt_r180",
+          "family": "camera-proxy",
+          "cer": 0.027613412228796843,
+          "wer": 0.17333333333333334,
+          "bag_cer": 0.1341222879684418,
+          "digit_cer": 0.04938271604938271,
+          "digit_exact": false,
+          "seconds": 12.673,
+          "rotation_ok": true
+        },
+        {
+          "id": "cam_ne_8pt_r270",
+          "family": "camera-proxy",
+          "cer": 0.02564102564102564,
+          "wer": 0.16,
+          "bag_cer": 0.07692307692307693,
+          "digit_cer": 0.024691358024691357,
+          "digit_exact": false,
+          "seconds": 14.607,
+          "rotation_ok": true
+        },
+        {
+          "id": "cam_en_8pt",
+          "family": "camera-proxy",
+          "cer": 0.002380952380952381,
+          "wer": 0.01639344262295082,
+          "bag_cer": 0.002380952380952381,
+          "digit_cer": 0.0,
+          "digit_exact": true,
+          "seconds": 7.93,
+          "rotation_ok": true
+        },
+        {
+          "id": "cam_en_7pt_soft",
+          "family": "camera-proxy",
+          "cer": 0.002380952380952381,
+          "wer": 0.01639344262295082,
+          "bag_cer": 0.002380952380952381,
+          "digit_cer": 0.009345794392523364,
+          "digit_exact": false,
+          "seconds": 4.264,
+          "rotation_ok": true
+        },
+        {
+          "id": "cam_en_8pt_r90",
+          "family": "camera-proxy",
+          "cer": 0.0,
+          "wer": 0.0,
+          "bag_cer": 0.0,
+          "digit_cer": 0.0,
+          "digit_exact": true,
+          "seconds": 3.886,
+          "rotation_ok": true
+        },
+        {
+          "id": "cam_en_8pt_r180",
+          "family": "camera-proxy",
+          "cer": 0.0,
+          "wer": 0.0,
+          "bag_cer": 0.0,
+          "digit_cer": 0.0,
+          "digit_exact": true,
+          "seconds": 6.239,
+          "rotation_ok": true
+        },
+        {
+          "id": "cam_en_8pt_r270",
+          "family": "camera-proxy",
+          "cer": 0.0,
+          "wer": 0.0,
+          "bag_cer": 0.0,
+          "digit_cer": 0.0,
+          "digit_exact": true,
+          "seconds": 10.552,
+          "rotation_ok": true
+        },
+        {
+          "id": "ne_clean",
+          "family": "synthetic",
+          "cer": 0.033444816053511704,
+          "wer": 0.25,
+          "bag_cer": 0.13043478260869565,
+          "digit_cer": 0.05405405405405406,
+          "digit_exact": false,
+          "seconds": 2.829
+        },
+        {
+          "id": "ne_shadow",
+          "family": "synthetic",
+          "cer": 0.026755852842809364,
+          "wer": 0.18181818181818182,
+          "bag_cer": 0.026755852842809364,
+          "digit_cer": 0.0,
+          "digit_exact": true,
+          "seconds": 3.282
+        },
+        {
+          "id": "en_clean",
+          "family": "synthetic",
+          "cer": 0.0,
+          "wer": 0.0,
+          "bag_cer": 0.0,
+          "digit_cer": 0.0,
+          "digit_exact": true,
+          "seconds": 3.052
+        },
+        {
+          "id": "en_rotated",
+          "family": "synthetic",
+          "cer": 0.005555555555555556,
+          "wer": 0.04,
+          "bag_cer": 0.005555555555555556,
+          "digit_cer": 0.0,
+          "digit_exact": true,
+          "seconds": 4.333
+        },
+        {
+          "id": "saktidharasukla1930_p01",
+          "family": "historical-hindi",
+          "cer": 0.5172413793103449,
+          "wer": 1.0185185185185186,
+          "bag_cer": 0.7011494252873564,
+          "digit_cer": 1.1428571428571428,
+          "digit_exact": false,
+          "seconds": 6.954
+        },
+        {
+          "id": "simha1914_p000_1",
+          "family": "historical-hindi",
+          "cer": 0.4067796610169492,
+          "wer": 0.7101449275362319,
+          "bag_cer": 0.49878934624697335,
+          "digit_cer": 1.5714285714285714,
+          "digit_exact": false,
+          "seconds": 7.702
+        }
+      ],
+      "mean_cer": 0.07066461525608053,
+      "by_family": {
+        "camera-proxy": 0.014085657931811777,
+        "historical-hindi": 0.462010520163647,
+        "synthetic": 0.016439056112969155
+      },
+      "mean_seconds": 8.2163125,
+      "orientation_correct": "10/10"
+    },
+    "mobile_rapidocr_base": {
+      "status": "incomplete",
+      "missing": [
+        "cam_en_8pt_r180",
+        "cam_en_8pt_r270",
+        "ne_clean",
+        "ne_shadow",
+        "en_clean",
+        "en_rotated",
+        "saktidharasukla1930_p01",
+        "simha1914_p000_1"
+      ],
+      "pages": [
+        {
+          "id": "cam_ne_8pt",
+          "family": "camera-proxy",
+          "cer": 0.03747534516765286,
+          "wer": 0.21333333333333335,
+          "bag_cer": 0.16568047337278108,
+          "digit_cer": 0.0,
+          "digit_exact": true,
+          "seconds": 39.191,
+          "rotation_ok": true
+        },
+        {
+          "id": "cam_ne_7pt_soft",
+          "family": "camera-proxy",
+          "cer": 0.045364891518737675,
+          "wer": 0.21333333333333335,
+          "bag_cer": 0.15187376725838264,
+          "digit_cer": 0.0,
+          "digit_exact": true,
+          "seconds": 29.917,
+          "rotation_ok": true
+        },
+        {
+          "id": "cam_ne_8pt_r90",
+          "family": "camera-proxy",
+          "cer": 0.04339250493096647,
+          "wer": 0.2,
+          "bag_cer": 0.16568047337278108,
+          "digit_cer": 0.0,
+          "digit_exact": true,
+          "seconds": 30.865,
+          "rotation_ok": true
+        },
+        {
+          "id": "cam_ne_8pt_r180",
+          "family": "camera-proxy",
+          "cer": 0.03944773175542406,
+          "wer": 0.2,
+          "bag_cer": 0.13609467455621302,
+          "digit_cer": 0.0,
+          "digit_exact": true,
+          "seconds": 31.407,
+          "rotation_ok": true
+        },
+        {
+          "id": "cam_ne_8pt_r270",
+          "family": "camera-proxy",
+          "cer": 0.027613412228796843,
+          "wer": 0.13333333333333333,
+          "bag_cer": 0.10848126232741617,
+          "digit_cer": 0.0,
+          "digit_exact": true,
+          "seconds": 30.7,
+          "rotation_ok": true
+        },
+        {
+          "id": "cam_en_8pt",
+          "family": "camera-proxy",
+          "cer": 0.0,
+          "wer": 0.0,
+          "bag_cer": 0.0,
+          "digit_cer": 0.0,
+          "digit_exact": true,
+          "seconds": 282.974,
+          "rotation_ok": true
+        },
+        {
+          "id": "cam_en_7pt_soft",
+          "family": "camera-proxy",
+          "cer": 0.0,
+          "wer": 0.0,
+          "bag_cer": 0.0,
+          "digit_cer": 0.0,
+          "digit_exact": true,
+          "seconds": 308.423,
+          "rotation_ok": true
+        },
+        {
+          "id": "cam_en_8pt_r90",
+          "family": "camera-proxy",
+          "cer": 0.0,
+          "wer": 0.0,
+          "bag_cer": 0.0,
+          "digit_cer": 0.0,
+          "digit_exact": true,
+          "seconds": 305.052,
+          "rotation_ok": true
+        }
+      ]
+    },
+    "mobile_rapidocr_new2": {
+      "status": "complete",
+      "missing": [],
+      "pages": [
+        {
+          "id": "cam_ne_8pt",
+          "family": "camera-proxy",
+          "cer": 0.03353057199211045,
+          "wer": 0.2,
+          "bag_cer": 0.15581854043392504,
+          "digit_cer": 0.0,
+          "digit_exact": true,
+          "seconds": 110.255,
+          "rotation_ok": true
+        },
+        {
+          "id": "cam_ne_7pt_soft",
+          "family": "camera-proxy",
+          "cer": 0.04142011834319527,
+          "wer": 0.2,
+          "bag_cer": 0.08284023668639054,
+          "digit_cer": 0.0,
+          "digit_exact": true,
+          "seconds": 48.098,
+          "rotation_ok": true
+        },
+        {
+          "id": "cam_ne_8pt_r90",
+          "family": "camera-proxy",
+          "cer": 0.9072978303747534,
+          "wer": 1.0,
+          "bag_cer": 0.9112426035502958,
+          "digit_cer": 0.7901234567901234,
+          "digit_exact": false,
+          "seconds": 80.249,
+          "rotation_ok": false
+        },
+        {
+          "id": "cam_ne_8pt_r180",
+          "family": "camera-proxy",
+          "cer": 0.8915187376725838,
+          "wer": 1.0,
+          "bag_cer": 0.903353057199211,
+          "digit_cer": 0.8148148148148148,
+          "digit_exact": false,
+          "seconds": 119.758,
+          "rotation_ok": false
+        },
+        {
+          "id": "cam_ne_8pt_r270",
+          "family": "camera-proxy",
+          "cer": 0.03353057199211045,
+          "wer": 0.18666666666666668,
+          "bag_cer": 0.13609467455621302,
+          "digit_cer": 0.0,
+          "digit_exact": true,
+          "seconds": 240.039,
+          "rotation_ok": true
+        },
+        {
+          "id": "cam_en_8pt",
+          "family": "camera-proxy",
+          "cer": 0.0,
+          "wer": 0.0,
+          "bag_cer": 0.0,
+          "digit_cer": 0.0,
+          "digit_exact": true,
+          "seconds": 273.729,
+          "rotation_ok": true
+        },
+        {
+          "id": "cam_en_7pt_soft",
+          "family": "camera-proxy",
+          "cer": 0.0,
+          "wer": 0.0,
+          "bag_cer": 0.0,
+          "digit_cer": 0.0,
+          "digit_exact": true,
+          "seconds": 306.132,
+          "rotation_ok": true
+        },
+        {
+          "id": "cam_en_8pt_r90",
+          "family": "camera-proxy",
+          "cer": 0.0,
+          "wer": 0.0,
+          "bag_cer": 0.0,
+          "digit_cer": 0.0,
+          "digit_exact": true,
+          "seconds": 300.403,
+          "rotation_ok": true
+        },
+        {
+          "id": "cam_en_8pt_r180",
+          "family": "camera-proxy",
+          "cer": 0.0,
+          "wer": 0.0,
+          "bag_cer": 0.0,
+          "digit_cer": 0.0,
+          "digit_exact": true,
+          "seconds": 207.876,
+          "rotation_ok": true
+        },
+        {
+          "id": "cam_en_8pt_r270",
+          "family": "camera-proxy",
+          "cer": 0.0,
+          "wer": 0.0,
+          "bag_cer": 0.0,
+          "digit_cer": 0.0,
+          "digit_exact": true,
+          "seconds": 280.556,
+          "rotation_ok": true
+        },
+        {
+          "id": "ne_clean",
+          "family": "synthetic",
+          "cer": 0.04013377926421405,
+          "wer": 0.18181818181818182,
+          "bag_cer": 0.07692307692307693,
+          "digit_cer": 0.0,
+          "digit_exact": true,
+          "seconds": 129.106
+        },
+        {
+          "id": "ne_shadow",
+          "family": "synthetic",
+          "cer": 0.03678929765886288,
+          "wer": 0.18181818181818182,
+          "bag_cer": 0.03678929765886288,
+          "digit_cer": 0.0,
+          "digit_exact": true,
+          "seconds": 127.177
+        },
+        {
+          "id": "en_clean",
+          "family": "synthetic",
+          "cer": 0.0,
+          "wer": 0.0,
+          "bag_cer": 0.0,
+          "digit_cer": 0.0,
+          "digit_exact": true,
+          "seconds": 22.132
+        },
+        {
+          "id": "en_rotated",
+          "family": "synthetic",
+          "cer": 0.0,
+          "wer": 0.0,
+          "bag_cer": 0.0,
+          "digit_cer": 0.0,
+          "digit_exact": true,
+          "seconds": 157.233
+        },
+        {
+          "id": "saktidharasukla1930_p01",
+          "family": "historical-hindi",
+          "cer": 0.5344827586206896,
+          "wer": 0.8888888888888888,
+          "bag_cer": 0.6015325670498084,
+          "digit_cer": 1.1428571428571428,
+          "digit_exact": false,
+          "seconds": 93.929
+        },
+        {
+          "id": "simha1914_p000_1",
+          "family": "historical-hindi",
+          "cer": 0.3341404358353511,
+          "wer": 0.6231884057971014,
+          "bag_cer": 0.5484261501210653,
+          "digit_cer": 1.2857142857142858,
+          "digit_exact": false,
+          "seconds": 64.702
+        }
+      ],
+      "mean_cer": 0.17830275635961695,
+      "by_family": {
+        "camera-proxy": 0.19072978303747531,
+        "historical-hindi": 0.4343115972280204,
+        "synthetic": 0.019230769230769232
+      },
+      "mean_seconds": 160.085875,
+      "orientation_correct": "8/10"
+    }
+  },
+  "limitations": [
+    "Six-page smoke comparison, not representative market validation.",
+    "Synthetic Nepali is not a real camera corpus; historical pages are Hindi, not Nepali.",
+    "Missing outputs are unmeasured; only complete engines have aggregate scores.",
+    "Emulator and desktop latency are not comparable hardware benchmarks."
+  ]
+}

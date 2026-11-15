@@ -1,6 +1,7 @@
 """Paired OCR comparison: identical image bytes, explicit GT authority, no missing-output wins.
 
 python -m evals.harness.compare_apps prepare
+python -m evals.harness.compare_apps prepare-camera --pack build/ocr-comparison/camera
 python -m evals.harness.compare_apps desktop
 python -m evals.harness.compare_apps score
 Place competitor TXT exports at <pack>/outputs/<engine>/<page-id>.txt.
@@ -127,6 +128,95 @@ def prepare(pack: Path) -> None:
     print(f"Prepared {len(entries)} pages at {pack}", flush=True)
 
 
+CAMERA_NEPALI = [
+    "नेपाल सरकार", "शिक्षा, विज्ञान तथा प्रविधि मन्त्रालय",
+    "विद्यार्थीको नाम: सरिता शर्मा", "विद्यालयको नाम: जनसेवा माध्यमिक विद्यालय",
+    "आजको मिति: २०८३/०७/०१", "जम्मा विद्यार्थी संख्या: १२३४५",
+    "पुस्तक पढ्ने बानीले ज्ञान र सीप बढाउँछ।", "हामी सबै मिलेर आफ्नो गाउँ सफा राखौँ।",
+    "सम्पर्क नम्बर: ९८४१२३४५६७", "कुल रकम: रु. १२,५००.७५",
+    "कित्ता नम्बर: ४४७१ क्षेत्रफल: ०-३-२-१", "वडा नम्बर: ७ टोल: शान्तिनगर",
+    "दर्ता मिति: २०८२/११/२९ दर्ता नम्बर: ५६०८", "बैंक खाता: ०१२३४५६७८९०१",
+    "यो प्रमाणपत्र तीन वर्षसम्म मान्य हुनेछ।", "आवेदकको सही र औंठाछाप तल राख्नुहोस्।",
+]
+CAMERA_ENGLISH = [
+    "VERISCRIPT TEST INVOICE", "Customer: Sarita Sharma", "Invoice: 12345",
+    "Date: 2026/10/17", "Books: 12 x 250.00", "Total: Rs. 3,000.00",
+    "Reference: 9841234567", "Please check the amount before payment.",
+    "Plot number: 4471 Area: 0-3-2-1", "Ward: 7 Street: Shantinagar",
+    "Registered: 2026/03/13 No. 5608", "Account: 0123456789012",
+    "This certificate is valid for three years.", "Sign below and keep a copy.",
+    "Delivery charge: Rs. 145.50", "Balance due: Rs. 2,854.50",
+]
+
+
+def prepare_camera(pack: Path) -> None:
+    """12 MP 'phone photo' proxies of an A4 page (docs/TECH_UPGRADE_PLAN.md C1/D1).
+
+    A white A4 page fills ~88% of a 3024x4032 frame on a grey desk, with
+    7-8 pt text, mild optical blur and sensor noise, saved as JPEG like a
+    camera would. Rotated copies record the rotation the app must apply
+    (`expected_rotation`, clockwise degrees). Synthetic: these test
+    resolution handling and orientation, not real-photo accuracy.
+    """
+    if (pack / "manifest.json").exists():
+        raise SystemExit("Pack already exists. Reuse it or select a new --pack directory.")
+    (pack / "pages").mkdir(parents=True, exist_ok=True)
+    (pack / "gt").mkdir(exist_ok=True)
+    font_path = ROOT / "mobile/assets/Mukta-Regular.ttf"
+    rng = np.random.default_rng(20261115)
+    entries = []
+    frame_w, frame_h = 3024, 4032
+    page_h = int(frame_h * 0.88)
+    page_w = int(page_h * 210 / 297)
+    px_per_mm = page_h / 297.0
+
+    def render(lines, lang, points, soft):
+        size = round(points * 0.3528 * px_per_mm)  # em size in pixels
+        page = Image.new("RGB", (page_w, page_h), "white")
+        margin = int(20 * px_per_mm)
+        step = int(size * 1.9)
+        draw = ImageDraw.Draw(page)
+        font = ImageFont.truetype(str(font_path), size)
+        for i, line in enumerate(lines):
+            if lang == "ne" and not features.check_feature("raqm"):
+                draw_shaped(page, line, font_path, size, margin, margin + size + i * step)
+            else:
+                draw.text((margin, margin + i * step), line, font=font, fill="black")
+        frame = Image.new("RGB", (frame_w, frame_h), (118, 112, 104))
+        frame.paste(page, ((frame_w - page_w) // 2, (frame_h - page_h) // 2))
+        a = np.asarray(frame).astype(np.float32)
+        a = cv2.GaussianBlur(a, (0, 0), 1.3 if soft else 0.9)
+        if soft:  # uneven light across the page
+            a *= np.linspace(0.78, 1.0, frame_w, dtype=np.float32)[None, :, None]
+        a += rng.normal(0, 4.0 if soft else 2.5, a.shape).astype(np.float32)
+        return Image.fromarray(np.clip(a, 0, 255).astype(np.uint8))
+
+    def save(page_id, image, text, lang, source, rotation=0):
+        path = pack / "pages" / f"{page_id}.jpg"
+        image.save(path, quality=92)
+        gt = pack / "gt" / f"{page_id}.txt"
+        gt.write_text(text, encoding="utf-8")
+        entries.append(dict(id=page_id, image=f"pages/{page_id}.jpg", gt=f"gt/{page_id}.txt",
+                            sha256=digest(path), gt_sha256=digest(gt), lang=lang,
+                            family="camera-proxy", authority="exact-rendered-text",
+                            source=source, width=image.width, height=image.height,
+                            expected_rotation=rotation))
+
+    for lang, lines in [("ne", CAMERA_NEPALI), ("en", CAMERA_ENGLISH)]:
+        text = "\n".join(lines)
+        base = render(lines, lang, 8, soft=False)
+        save(f"cam_{lang}_8pt", base, text, lang, "12 MP frame, 8 pt, mild blur/noise")
+        save(f"cam_{lang}_7pt_soft", render(lines, lang, 7, soft=True), text, lang,
+             "12 MP frame, 7 pt, more blur/noise, uneven light")
+        # PIL rotates counter-clockwise; the app must turn it back clockwise.
+        for ccw in (90, 180, 270):
+            save(f"cam_{lang}_8pt_r{ccw}", base.rotate(ccw, expand=True), text, lang,
+                 f"cam_{lang}_8pt rotated {ccw} degrees counter-clockwise", rotation=ccw)
+    (pack / "manifest.json").write_text(json.dumps(dict(version=1, entries=entries),
+                                                      ensure_ascii=False, indent=2), encoding="utf-8")
+    print(f"Prepared {len(entries)} camera-proxy pages at {pack}", flush=True)
+
+
 def entries(pack):
     rows = json.loads((pack / "manifest.json").read_text(encoding="utf-8"))["entries"]
     for row in rows:
@@ -196,15 +286,26 @@ def score(pack):
                 raise ValueError(f"Output uses a different image: {out.name}/{row['id']}")
             gt, hyp = (pack / row["gt"]).read_text(encoding="utf-8"), path.read_text(encoding="utf-8")
             gtd, hypd = digit_string(gt), digit_string(hyp)
-            scores.append(dict(id=row["id"], family=row["family"], cer=cer(gt, hyp),
-                               wer=wer(gt, hyp), bag_cer=cer_bag(gt, hyp),
-                               digit_cer=cer(gtd, hypd) if gtd else None,
-                               digit_exact=gtd == hypd if gtd else None))
+            meta = json.loads(provenance.read_text(encoding="utf-8"))
+            item = dict(id=row["id"], family=row["family"], cer=cer(gt, hyp),
+                        wer=wer(gt, hyp), bag_cer=cer_bag(gt, hyp),
+                        digit_cer=cer(gtd, hypd) if gtd else None,
+                        digit_exact=gtd == hypd if gtd else None,
+                        seconds=meta.get("seconds"))
+            if "expected_rotation" in row and "rotation" in meta:
+                item["rotation_ok"] = (meta["rotation"] % 360) == row["expected_rotation"]
+            scores.append(item)
         value = dict(status="complete" if not missing else "incomplete", missing=missing, pages=scores)
         if not missing:
             value["mean_cer"] = float(np.mean([s["cer"] for s in scores]))
             value["by_family"] = {family: float(np.mean([s["cer"] for s in scores if s["family"] == family]))
                                   for family in sorted({s["family"] for s in scores})}
+            seconds = [s["seconds"] for s in scores if s["seconds"] is not None]
+            if seconds:
+                value["mean_seconds"] = float(np.mean(seconds))
+            judged = [s["rotation_ok"] for s in scores if "rotation_ok" in s]
+            if judged:
+                value["orientation_correct"] = f"{sum(judged)}/{len(judged)}"
         report["engines"][out.name] = value
     (pack / "scores.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     print(json.dumps(report, ensure_ascii=False, indent=2))
@@ -212,11 +313,13 @@ def score(pack):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=["prepare", "desktop", "score"])
+    parser.add_argument("action", choices=["prepare", "prepare-camera", "desktop", "score"])
     parser.add_argument("--pack", type=Path, default=DEFAULT_PACK)
     parser.add_argument("--modes", nargs='+', choices=["desktop_raw", "desktop_pipeline", "desktop_deva_auto"])
     args = parser.parse_args()
     if args.action == 'desktop':
         desktop(args.pack.resolve(), args.modes)
+    elif args.action == 'prepare-camera':
+        prepare_camera(args.pack.resolve())
     else:
         globals()[args.action](args.pack.resolve())

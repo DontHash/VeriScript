@@ -7,6 +7,15 @@ class OfflineProcessor {
   final String language;
   final String engine;
   bool cancelled = false;
+
+  /// Clockwise degrees the last recognize() turned the page (0 = as given).
+  int lastRotation = 0;
+
+  /// Rotations the last recognize() read, in order (its length is the
+  /// number of full-page reads orientation needed).
+  List<int> lastTried = const [];
+  int get lastReads => lastTried.length;
+
   TextRecognizer get recognizer => TextRecognizer(
     script: language == 'en'
         ? TextRecognitionScript.latin
@@ -61,8 +70,11 @@ class OfflineProcessor {
       List<Map<String, dynamic>>? best;
       double bestScore = -1;
       String bestPath = page.path;
-      for (final degrees in autoRotate ? [0, 90, 180, 270] : [0]) {
+      var bestDegrees = 0;
+      final tried = <int>[];
+      Future<List<Map<String, dynamic>>> attempt(int degrees) async {
         if (cancelled) throw StateError('Operation cancelled');
+        tried.add(degrees);
         onProgress?.call(
           degrees == 0 ? 'Reading text' : 'Checking orientation · $degrees°',
         );
@@ -96,8 +108,35 @@ class OfflineProcessor {
           best = result;
           bestScore = score;
           bestPath = path;
+          bestDegrees = degrees;
+        }
+        return result;
+      }
+
+      // Orientation (docs/TECH_UPGRADE_PLAN.md D1): read the page as given;
+      // most pages are upright, so one read is enough. Otherwise the line
+      // angles of that read say which way the page is turned: try that
+      // rotation first and stop at the first read that looks upright. All
+      // four rotations are read only when none does, and the best-scoring
+      // read wins as before.
+      //
+      // The early stop needs line angles that tell up from down: ML Kit
+      // reports them, and the native port's 0/180 line classifier runs for
+      // English only. For RapidOCR on Devanagari an upside-down page still
+      // looks "upright", so it compares all four rotations as before
+      // (measured 2026-11-15: early stop got 2 of 5 turned pages wrong).
+      final directional = engine == 'mlkit' || language == 'en';
+      final first = await attempt(0);
+      if (autoRotate && !directional) {
+        for (final degrees in [90, 180, 270]) {
+          await attempt(degrees);
+        }
+      } else if (autoRotate && !looksUpright(first)) {
+        for (final degrees in rotationOrder(first)) {
+          if (looksUpright(await attempt(degrees))) break;
         }
       }
+      lastTried = List.unmodifiable(tried);
       if (cancelled) throw StateError('Operation cancelled');
       var resultPath = page.path;
       var resultWidth = page.width, resultHeight = page.height;
@@ -155,6 +194,7 @@ class OfflineProcessor {
       page.height = resultHeight;
       page.lines = resultLines;
       page.recognized = true;
+      lastRotation = bestDegrees;
       paths.remove(resultPath);
     } finally {
       await reader?.close();
@@ -164,6 +204,62 @@ class OfflineProcessor {
       }
     }
   }
+}
+
+/// Rotations to try after a read that does not look upright, most likely
+/// first. Line angles are rounded to the nearest quarter turn and weighted by
+/// text length; the page is turned back by that much (clockwise degrees).
+/// Lines without an angle but taller than wide only say "sideways".
+List<int> rotationOrder(List<Map<String, dynamic>> lines) {
+  final votes = <int, double>{90: 0, 180: 0, 270: 0};
+  for (final line in lines) {
+    final n = (line['text'] as String).runes.length.toDouble();
+    final angle = (line['angle'] as num?)?.toDouble();
+    if (angle != null) {
+      final quarter = ((angle % 360) / 90).round() % 4 * 90;
+      final turn = (360 - quarter) % 360;
+      if (turn != 0) votes[turn] = votes[turn]! + n;
+    } else {
+      final box = line['bbox'] as List;
+      if ((box[3] as num) > (box[2] as num) * 1.5) {
+        votes[90] = votes[90]! + n / 2;
+        votes[270] = votes[270]! + n / 2;
+      }
+    }
+  }
+  final order = [90, 180, 270]
+    ..sort((a, b) {
+      final byVotes = votes[b]!.compareTo(votes[a]!);
+      return byVotes != 0 ? byVotes : a.compareTo(b);
+    });
+  // A sideways guess that is wrong is most often the opposite quarter turn.
+  if (order.first != 180) {
+    final opposite = (order.first + 180) % 360;
+    order
+      ..remove(opposite)
+      ..insert(1, opposite);
+  }
+  return order;
+}
+
+/// Whether a read looks upright: enough text, and most of it on lines whose
+/// angle (or shape, when no angle is reported) is upright.
+bool looksUpright(List<Map<String, dynamic>> lines) {
+  var chars = 0, upright = 0;
+  for (final line in lines) {
+    final n = (line['text'] as String).runes.length;
+    chars += n;
+    final box = line['bbox'] as List;
+    if (orientationWeight(
+          (line['angle'] as num?)?.toDouble(),
+          (box[2] as num).toDouble(),
+          (box[3] as num).toDouble(),
+        ) ==
+        1) {
+      upright += n;
+    }
+  }
+  return chars >= 8 && upright >= chars * .7;
 }
 
 double orientationWeight(double? angle, double width, double height) {
