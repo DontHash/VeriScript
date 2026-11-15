@@ -13,6 +13,27 @@ native camera design). Same rules as the rest of the repo: every default
 change ships through a written gate on a frozen set, and nothing leaves the
 device.
 
+## Status (2026-11-16)
+
+Done and measured (details in the results tables in §3):
+A1–A6 reliability, B1 library, B2 batch input, C1 resolution, D1
+orientation, D2 independent digit checks, D4 phone reading order, E1 text
+alignment, E2 born-digital PDFs, E3 size presets (desktop and phone), F2
+tables to spreadsheet, plus look-alike digit flags on the phone.
+
+Open, and why:
+
+| Item | Blocked on |
+|---|---|
+| C2 scan camera, C5 device acceptance | a physical phone (stand-in measures in C5) |
+| F4 real phone-photo set | consented real pages |
+| B3 "Open with VeriScript" | changes installer file associations; needs the desktop GUI to verify |
+| E4 PDF/A | a validator (veraPDF) to prove conformance |
+| F1 curved-page flattening | choosing and downloading a model (licence check first) |
+| D3 engine default per language | a real Nepali photo corpus (F4) to decide on |
+| RapidOCR speed on the phone | measuring on a phone, not the emulator |
+| G release signing | the owner's keystore and code-signing certificate |
+
 ---
 
 ## 1. Where we stand
