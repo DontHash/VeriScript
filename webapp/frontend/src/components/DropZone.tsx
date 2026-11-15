@@ -11,6 +11,8 @@ export function DropZone(props: {
   onFiles: (files: File[]) => void;
   onClear: () => void;
   disabled?: boolean;
+  /** Desktop app: accept several files (read one after another). */
+  multiple?: boolean;
 }) {
   const [dragging, setDragging] = createSignal(false);
   let root: HTMLDivElement | undefined;
@@ -55,6 +57,7 @@ export function DropZone(props: {
         ref={input}
         type="file"
         accept={ACCEPT}
+        multiple={props.multiple}
         class="visually-hidden"
         tabindex={-1}
         aria-label="Choose a page file"

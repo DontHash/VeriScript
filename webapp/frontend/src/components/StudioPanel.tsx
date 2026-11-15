@@ -33,12 +33,54 @@ export function StudioPanel(props: { state: StudioState; compact?: boolean }) {
 
   return (
     <div class="panel">
-      <DropZone
-        file={s.file()}
-        onFiles={s.chooseFiles}
-        onClear={s.clearFile}
-        disabled={running()}
-      />
+      <Show
+        when={s.batch().length > 0}
+        fallback={
+          <DropZone
+            file={s.file()}
+            onFiles={s.chooseFiles}
+            onClear={s.clearFile}
+            disabled={running()}
+            multiple={isLocal()}
+          />
+        }
+      >
+        <div class="batch">
+          <div class="batch__head">
+            <h2 class="batch__title">{s.batch().length} files</h2>
+            <button
+              class="btn btn--ghost btn--small"
+              type="button"
+              disabled={running()}
+              onClick={s.clearBatch}
+            >
+              Clear
+            </button>
+          </div>
+          <ol class="batch__list" aria-label="Files to read">
+            <For each={s.batch()}>
+              {(item) => (
+                <li class="batch__item" data-status={item.status}>
+                  <span class="batch__name">{item.file.name}</span>
+                  <span class="batch__stage">{item.stage}</span>
+                  <Show when={item.status === "done" && item.runId}>
+                    <button
+                      class="btn btn--ghost btn--small"
+                      type="button"
+                      onClick={() => void s.showBatchResult(item.runId!)}
+                    >
+                      Show<span class="visually-hidden"> {item.file.name}</span>
+                    </button>
+                  </Show>
+                </li>
+              )}
+            </For>
+          </ol>
+          <p class="field__hint">
+            Each finished file is kept in your Library.
+          </p>
+        </div>
+      </Show>
 
       <Show when={s.notice()}>
         <p class="field__hint" role="status">
@@ -220,10 +262,14 @@ export function StudioPanel(props: { state: StudioState; compact?: boolean }) {
         <button
           class="btn btn--primary btn--block"
           type="button"
-          disabled={!s.file() || running()}
+          disabled={(!s.file() && s.batch().length === 0) || running()}
           onClick={() => void s.start()}
         >
-          {running() ? "Reading…" : "Restore and read"}
+          {running()
+            ? "Reading…"
+            : s.batch().length > 0
+              ? `Read ${s.batch().length} files`
+              : "Restore and read"}
         </button>
         <Show when={running()}>
           <button class="btn btn--ghost btn--small" type="button" onClick={() => s.cancel()}>

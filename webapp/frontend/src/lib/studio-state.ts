@@ -2,7 +2,14 @@
  *  page, so the product behaves identically wherever it is embedded. */
 import { createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
 import { announce } from "./announce";
-import { clearMemory as clearMemoryApi, correctRun, exportRunCorrections, runJob } from "./api";
+import {
+  clearMemory as clearMemoryApi,
+  correctRun,
+  exportRunCorrections,
+  fetchRunSummary,
+  runJob,
+  type RestoreOptions,
+} from "./api";
 import { refreshHealth, retentionText, useHealth } from "./health";
 import type {
   CorrectionInput,
@@ -17,6 +24,15 @@ import type {
 } from "./types";
 
 export type StudioPhase = "idle" | "running" | "done" | "error";
+
+/** One file in a desktop batch (docs/TECH_UPGRADE_PLAN.md B2). */
+export interface BatchItem {
+  file: File;
+  status: "waiting" | "reading" | "done" | "failed" | "stopped";
+  /** What the reader is doing, or why it failed. */
+  stage: string;
+  runId?: string;
+}
 
 /** Accepted inputs; mirrors the server's validate_upload. */
 export const ACCEPTED_EXTENSIONS = [".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff", ".pdf"];
@@ -106,6 +122,10 @@ export function createStudioState() {
   const [appliedSigs, setAppliedSigs] = createSignal<Record<number, string>>({});
   /** When the shown result came back from a previous visit (ms), else null. */
   const [restoredAt, setRestoredAt] = createSignal<number | null>(null);
+  /** Desktop: several files read one after another (B2). Empty = single file. */
+  const [batch, setBatch] = createSignal<BatchItem[]>([]);
+  const updateItem = (i: number, patch: Partial<BatchItem>) =>
+    setBatch((items) => items.map((item, j) => (j === i ? { ...item, ...patch } : item)));
   /** Title of a document reopened from the desktop library, else null. */
   const [openedTitle, setOpenedTitle] = createSignal<string | null>(null);
   /** A short notice about the last file choice (e.g. extra files ignored). */
@@ -174,6 +194,25 @@ export function createStudioState() {
   const chooseFiles = (files: File[]) => {
     const [first] = files;
     if (!first) return;
+    // The desktop app reads several files in a row; the shared demo keeps to
+    // one at a time (its daily page quota).
+    if (files.length > 1 && health()?.mode === "local") {
+      const usable = files.filter((f) => !fileProblem(f, maxUploadMb()));
+      const skipped = files.length - usable.length;
+      if (usable.length > 1) {
+        chooseFile(usable[0]);
+        setFile(null);
+        setInputUrl(null);
+        setBatch(usable.map((f) => ({ file: f, status: "waiting", stage: "Waiting" })));
+        setNotice(
+          skipped
+            ? `${skipped} ${skipped === 1 ? "file is" : "files are"} not a supported image or PDF and will be skipped.`
+            : null,
+        );
+        return;
+      }
+    }
+    setBatch([]);
     const problem = fileProblem(first, maxUploadMb());
     if (problem) {
       setNotice(null);
@@ -218,6 +257,7 @@ export function createStudioState() {
   };
 
   const clearFile = () => {
+    setBatch([]);
     if (inputUrl()) URL.revokeObjectURL(inputUrl()!);
     setNotice(null);
     setRestoredAt(null);
@@ -241,7 +281,96 @@ export function createStudioState() {
     }
   };
 
+  const options = (): RestoreOptions => ({
+    lang: lang(),
+    deskew: deskew(),
+    ocr: ocr(),
+    allPages: allPages(),
+    autoRotate: autoRotate(),
+    pdfSize: pdfSize(),
+    outputs: { overlay: wantOverlay(), pdf: wantPdf(), txt: wantTxt(), md: wantMd() },
+  });
+
+  /** Read every batch file in turn. Cancel stops the current file on the
+   *  server and skips the rest; finished files stay in the library. */
+  const runBatch = async () => {
+    const items = batch();
+    setOpenedTitle(null);
+    setPhase("running");
+    setError(null);
+    setElapsed(0);
+    controller = new AbortController();
+    const signal = controller.signal;
+    const startedAt = performance.now();
+    timer = window.setInterval(() => setElapsed((performance.now() - startedAt) / 1000), 100);
+    announce(`Reading ${items.length} files, one after another.`);
+    let done = 0;
+    let failed = 0;
+    try {
+      for (let i = 0; i < items.length; i++) {
+        if (signal.aborted) break;
+        updateItem(i, { status: "reading", stage: "Uploading…" });
+        try {
+          const payload = await runJob(items[i].file, options(), {
+            signal,
+            onProgress: (status) => updateItem(i, { stage: jobLine(status) }),
+          });
+          updateItem(i, { status: "done", stage: "Done", runId: payload.run_id });
+          savedAt = Date.now();
+          resetCorrections();
+          setResult(payload);
+          done++;
+          announce(`${items[i].file.name} is done, ${i + 1} of ${items.length}.`);
+        } catch (e) {
+          if (e instanceof DOMException && e.name === "AbortError") {
+            updateItem(i, { status: "stopped", stage: "Stopped" });
+            break;
+          }
+          failed++;
+          updateItem(i, {
+            status: "failed",
+            stage: e instanceof Error ? e.message : "This file could not be read.",
+          });
+        }
+      }
+    } finally {
+      setBatch((list) =>
+        list.map((item) => (item.status === "waiting" ? { ...item, status: "stopped", stage: "Skipped" } : item)),
+      );
+      controller = undefined;
+      setJob(null);
+      if (timer) window.clearInterval(timer);
+      setPhase(result() ? "done" : "idle");
+      refreshHealth();
+      const stopped = items.length - done - failed;
+      announce(
+        `${done} of ${items.length} files done` +
+          (failed ? `, ${failed} failed` : "") +
+          (stopped ? `, ${stopped} stopped` : "") +
+          ".",
+      );
+    }
+  };
+
+  /** Show one finished batch file in the results area. */
+  const showBatchResult = async (runId: string) => {
+    try {
+      const kept = await fetchRunSummary(runId);
+      const created = (kept.meta as { created?: number }).created;
+      openKept(kept, kept.title, created ? created * 1000 : Date.now());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "That result could not be opened.");
+    }
+  };
+
+  const clearBatch = () => {
+    if (phase() === "running") return;
+    setBatch([]);
+    setNotice(null);
+  };
+
   const start = async () => {
+    if (batch().length > 0 && phase() !== "running") return runBatch();
     const f = file();
     if (!f || phase() === "running") return;
     setOpenedTitle(null);
@@ -255,20 +384,7 @@ export function createStudioState() {
     timer = window.setInterval(() => setElapsed((performance.now() - startedAt) / 1000), 100);
     try {
       let lastStage = "";
-      const payload = await runJob(f, {
-        lang: lang(),
-        deskew: deskew(),
-        ocr: ocr(),
-        allPages: allPages(),
-        autoRotate: autoRotate(),
-        pdfSize: pdfSize(),
-        outputs: {
-          overlay: wantOverlay(),
-          pdf: wantPdf(),
-          txt: wantTxt(),
-          md: wantMd(),
-        },
-      }, {
+      const payload = await runJob(f, options(), {
         signal: controller.signal,
         onProgress: (status) => {
           setJob(status);
@@ -425,6 +541,9 @@ export function createStudioState() {
     chooseFile,
     chooseFiles,
     openKept,
+    batch,
+    clearBatch,
+    showBatchResult,
     openKeptFailed: () => {
       setError("That document is no longer in your library.");
       setPhase("error");
