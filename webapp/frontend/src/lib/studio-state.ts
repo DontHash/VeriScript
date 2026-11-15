@@ -12,6 +12,7 @@ import type {
   JobStatus,
   Lang,
   OcrEngine,
+  PdfSize,
   RunPayload,
 } from "./types";
 
@@ -81,6 +82,7 @@ export function createStudioState() {
   const [wantPdf, setWantPdf] = createSignal(true);
   const [wantTxt, setWantTxt] = createSignal(true);
   const [wantMd, setWantMd] = createSignal(true);
+  const [pdfSize, setPdfSize] = createSignal<PdfSize>("standard");
   const [advancedOpen, setAdvancedOpen] = createSignal(false);
   const [phase, setPhase] = createSignal<StudioPhase>("idle");
   const [result, setResult] = createSignal<RunPayload | null>(null);
@@ -240,6 +242,7 @@ export function createStudioState() {
         ocr: ocr(),
         allPages: allPages(),
         autoRotate: autoRotate(),
+        pdfSize: pdfSize(),
         outputs: {
           overlay: wantOverlay(),
           pdf: wantPdf(),
@@ -387,6 +390,8 @@ export function createStudioState() {
     wantTxt,
     setWantTxt,
     wantMd,
+    pdfSize,
+    setPdfSize,
     setWantMd,
     advancedOpen,
     setAdvancedOpen,

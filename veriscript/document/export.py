@@ -112,14 +112,63 @@ def _estimate_dpi(img: np.ndarray, dpi: Optional[int] = None) -> int:
     return 300 if max(img.shape[:2]) >= 2000 else 150
 
 
-def write_searchable_pdf_pages(path: str, pages, title: Optional[str] = None) -> str:
+#: Page-image settings per PDF size preset (docs/TECH_UPGRADE_PLAN.md E3).
+#: The OCR text layer is identical in every preset; only the picture changes.
+#:   archive  - lossless (Flate), the original pixels
+#:   standard - JPEG q85 at full resolution (default)
+#:   small    - JPEG q60, at most 150 DPI
+#: standard and small store near-grey pages as greyscale.
+PDF_SIZES = {
+    "archive": {"jpeg": None, "max_dpi": None},
+    "standard": {"jpeg": 85, "max_dpi": None},
+    "small": {"jpeg": 60, "max_dpi": 150},
+}
+DEFAULT_PDF_SIZE = "standard"
+
+
+def _is_grey(image_bgr: np.ndarray) -> bool:
+    """True when colour carries no information (scans, enhanced pages)."""
+    if image_bgr.ndim == 2:
+        return True
+    small = cv2.resize(image_bgr, (256, 256), interpolation=cv2.INTER_AREA).astype(np.int16)
+    spread = small.max(axis=2) - small.min(axis=2)
+    return float(np.percentile(spread, 99)) <= 12.0
+
+
+def _page_image(image_bgr: np.ndarray, dpi: int, size: str):
+    """ImageReader for the page picture under preset `size`."""
+    import io
+
+    from reportlab.lib.utils import ImageReader
+
+    preset = PDF_SIZES.get(size) or PDF_SIZES[DEFAULT_PDF_SIZE]
+    if preset["jpeg"] is None:
+        rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
+        return ImageReader(Image.fromarray(rgb))
+    image = image_bgr
+    if preset["max_dpi"] and dpi > preset["max_dpi"]:
+        f = preset["max_dpi"] / dpi
+        image = cv2.resize(image, (max(1, round(image.shape[1] * f)), max(1, round(image.shape[0] * f))),
+                           interpolation=cv2.INTER_AREA)
+    if _is_grey(image):
+        pil = Image.fromarray(image if image.ndim == 2 else cv2.cvtColor(image, cv2.COLOR_BGR2GRAY))
+    else:
+        pil = Image.fromarray(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
+    buf = io.BytesIO()
+    pil.save(buf, format="JPEG", quality=preset["jpeg"], optimize=True)
+    buf.seek(0)
+    return ImageReader(buf)
+
+
+def write_searchable_pdf_pages(path: str, pages, title: Optional[str] = None,
+                               size: str = DEFAULT_PDF_SIZE) -> str:
     """Multi-page searchable PDF: one (image_bgr, tokens, dpi|None) per page.
 
     Each page keeps its own size (derived from pixels + dpi), so mixed-size
     inputs stay honest. Per-page artifacts are unaffected; this is the
     combined output for multi-page PDF inputs (P6).
     """
-    writer = SearchablePdfWriter(path, title=title)
+    writer = SearchablePdfWriter(path, title=title, size=size)
     try:
         for image_bgr, tokens, dpi in pages:
             writer.add_page(image_bgr, tokens, dpi)
@@ -140,9 +189,13 @@ class SearchablePdfWriter:
     stopped run never leaves a half-written PDF under the real name.
     """
 
-    def __init__(self, path: str, title: Optional[str] = None) -> None:
+    def __init__(self, path: str, title: Optional[str] = None,
+                 size: str = DEFAULT_PDF_SIZE) -> None:
         from reportlab.pdfgen import canvas
 
+        if size not in PDF_SIZES:
+            raise ValueError(f"unknown PDF size {size!r}; use one of {sorted(PDF_SIZES)}")
+        self.size = size
         self.path = path
         self._part = path + ".part"
         os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
@@ -152,7 +205,6 @@ class SearchablePdfWriter:
         self.pages = 0
 
     def add_page(self, image_bgr: np.ndarray, tokens, dpi: Optional[int] = None) -> None:
-        from reportlab.lib.utils import ImageReader
         from reportlab.pdfbase import pdfmetrics
 
         c = self._canvas
@@ -161,8 +213,7 @@ class SearchablePdfWriter:
         pw, ph = w * 72.0 / dpi, h * 72.0 / dpi
         px2pt = 72.0 / dpi
         c.setPageSize((pw, ph))
-        rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
-        c.drawImage(ImageReader(Image.fromarray(rgb)), 0, 0, width=pw, height=ph)
+        c.drawImage(_page_image(image_bgr, dpi, self.size), 0, 0, width=pw, height=ph)
         for tok in tokens:
             text = (tok.text or "").strip()
             if not text:
@@ -199,9 +250,10 @@ class SearchablePdfWriter:
 
 
 def write_searchable_pdf(path: str, image_bgr: np.ndarray, tokens: List[Token],
-                         dpi: Optional[int] = None) -> str:
+                         dpi: Optional[int] = None,
+                         size: str = DEFAULT_PDF_SIZE) -> str:
     """Image page + invisible, selectable text at token boxes."""
-    return write_searchable_pdf_pages(path, [(image_bgr, tokens, dpi)])
+    return write_searchable_pdf_pages(path, [(image_bgr, tokens, dpi)], size=size)
 
 
 def _tok_color(tok: Token):
@@ -408,14 +460,16 @@ def export_document_outputs(out_dir: str, stem: str, image_bgr: np.ndarray,
                             make_pdf: bool = True, make_overlay: bool = True,
                             make_txt: bool = True, make_json: bool = True,
                             make_md: bool = True,
-                            overlay_source: Optional[np.ndarray] = None) -> Dict[str, str]:
+                            overlay_source: Optional[np.ndarray] = None,
+                            pdf_size: str = DEFAULT_PDF_SIZE) -> Dict[str, str]:
     """Write the product outputs. `overlay_source` lets the caller draw boxes on
     the restored/display image instead of the raw input."""
     os.makedirs(out_dir, exist_ok=True)
     written: Dict[str, str] = {}
     if make_pdf:
         written["pdf"] = write_searchable_pdf(os.path.join(out_dir, f"{stem}.pdf"),
-                                              image_bgr, result.tokens, dpi=dpi)
+                                              image_bgr, result.tokens, dpi=dpi,
+                                              size=pdf_size)
     if make_overlay:
         written["overlay"] = write_overlay_png(os.path.join(out_dir, f"{stem}_overlay.png"),
                                                overlay_source if overlay_source is not None else image_bgr,

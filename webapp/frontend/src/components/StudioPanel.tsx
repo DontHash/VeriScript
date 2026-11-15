@@ -4,7 +4,7 @@ import { announce } from "../lib/announce";
 import { isLocal } from "../lib/health";
 import { DropZone } from "./DropZone";
 import { EXAMPLE_FILES, jobLine, limitsLine, type StudioState } from "../lib/studio-state";
-import type { Lang, OcrEngine } from "../lib/types";
+import type { Lang, OcrEngine, PdfSize } from "../lib/types";
 
 /** The studio controls: drop a page, pick an example, set options, run.
  *  `compact` is the homepage hero treatment. */
@@ -123,6 +123,27 @@ export function StudioPanel(props: { state: StudioState; compact?: boolean }) {
             <option value="rapidocr">RapidOCR (recommended)</option>
             <option value="tesseract">Tesseract (optional install)</option>
           </select>
+        </div>
+
+        <div class="field">
+          <label class="field__label" for={`pdfsize-${suffix}`}>
+            PDF size
+          </label>
+          <select
+            id={`pdfsize-${suffix}`}
+            class="select"
+            value={s.pdfSize()}
+            disabled={running()}
+            aria-describedby={`pdfsize-hint-${suffix}`}
+            onChange={(e) => s.setPdfSize(e.currentTarget.value as PdfSize)}
+          >
+            <option value="standard">Standard (sharp, compact)</option>
+            <option value="small">Small (for email, 150 DPI)</option>
+            <option value="archive">Archive (original pixels, large)</option>
+          </select>
+          <p class="field__hint" id={`pdfsize-hint-${suffix}`}>
+            The searchable text is the same in every size; only the page picture changes.
+          </p>
         </div>
 
         <label class="checkbox">

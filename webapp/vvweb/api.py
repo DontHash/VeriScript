@@ -48,6 +48,8 @@ RUNS_DIR = settings.runs_dir or os.path.join(WEBAPP_DIR, "runs")
 
 MAX_LANG = {"en", "ne", "hi"}
 OCR_BACKENDS = {"auto", "rapidocr", "tesseract"}
+#: Searchable-PDF size presets (veriscript.document.export.PDF_SIZES).
+PDF_SIZES = ("standard", "small", "archive")
 
 
 def _flag(value: str, default: bool = True) -> bool:
@@ -288,7 +290,7 @@ def create_app() -> FastAPI:
     async def _submit(request: Request, file: UploadFile, *, lang: str,
                       deskew: str, ocr: str, overlay: str, pdf: str, txt: str,
                       md: str, all_pages: str, auto_rotate: str,
-                      text_layer: str = "1") -> Job:
+                      text_layer: str = "1", pdf_size: str = "standard") -> Job:
         """Validate, store and charge an upload, then queue it as a job.
 
         Never blocks the event loop: the job runs on the job worker, which
@@ -375,7 +377,8 @@ def create_app() -> FastAPI:
                        make_txt=_flag(txt), make_md=_flag(md),
                        all_pages=all_pages_flag,
                        auto_rotate=_flag(auto_rotate),
-                       use_text_layer=_flag(text_layer))
+                       use_text_layer=_flag(text_layer),
+                       pdf_size=pdf_size if pdf_size in PDF_SIZES else "standard")
 
         def work(job: Job) -> Dict[str, Any]:
             try:
@@ -429,11 +432,12 @@ def create_app() -> FastAPI:
                          md: str = Form("1"),
                          all_pages: str = Form("0"),
                          auto_rotate: str = Form("1"),
-                         text_layer: str = Form("1")) -> JSONResponse:
+                         text_layer: str = Form("1"),
+                         pdf_size: str = Form("standard")) -> JSONResponse:
         job = await _submit(request, file, lang=lang, deskew=deskew, ocr=ocr,
                             overlay=overlay, pdf=pdf, txt=txt, md=md,
                             all_pages=all_pages, auto_rotate=auto_rotate,
-                            text_layer=text_layer)
+                            text_layer=text_layer, pdf_size=pdf_size)
         return JSONResponse(job.public(jobs.position(job)),
                             status_code=status.HTTP_202_ACCEPTED,
                             headers={"Location": f"/api/jobs/{job.id}"})
@@ -461,7 +465,8 @@ def create_app() -> FastAPI:
                       md: str = Form("1"),
                       all_pages: str = Form("0"),
                       auto_rotate: str = Form("1"),
-                      text_layer: str = Form("1")) -> JSONResponse:
+                      text_layer: str = Form("1"),
+                      pdf_size: str = Form("standard")) -> JSONResponse:
         """Queue the upload and wait for it (scripts and the typed client).
 
         Waiting polls the job without blocking the event loop. If the caller
@@ -469,7 +474,7 @@ def create_app() -> FastAPI:
         job = await _submit(request, file, lang=lang, deskew=deskew, ocr=ocr,
                             overlay=overlay, pdf=pdf, txt=txt, md=md,
                             all_pages=all_pages, auto_rotate=auto_rotate,
-                            text_layer=text_layer)
+                            text_layer=text_layer, pdf_size=pdf_size)
         try:
             while not job.done.is_set():
                 await asyncio.sleep(0.05)

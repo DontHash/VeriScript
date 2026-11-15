@@ -7,6 +7,7 @@ import type {
   JobStatus,
   Lang,
   OcrEngine,
+  PdfSize,
   RunPayload,
 } from "./types";
 
@@ -73,6 +74,7 @@ export interface RestoreOptions {
   allPages: boolean;
   autoRotate: boolean;
   outputs: { overlay: boolean; pdf: boolean; txt: boolean; md: boolean };
+  pdfSize?: PdfSize;
 }
 
 function restoreForm(file: File | Blob, opts: RestoreOptions): FormData {
@@ -88,6 +90,7 @@ function restoreForm(file: File | Blob, opts: RestoreOptions): FormData {
   body.append("pdf", opts.outputs.pdf ? "1" : "0");
   body.append("txt", opts.outputs.txt ? "1" : "0");
   body.append("md", opts.outputs.md ? "1" : "0");
+  body.append("pdf_size", opts.pdfSize ?? "standard");
   return body;
 }
 

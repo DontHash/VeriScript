@@ -158,7 +158,8 @@ def run_document_mode(args) -> int:
                 out_dir=args.output, stem=name,
                 make_pdf=not args.no_pdf, make_overlay=not args.no_overlay,
                 make_txt=not args.no_txt, make_json=True,
-                make_md=not getattr(args, "no_md", False))
+                make_md=not getattr(args, "no_md", False),
+                pdf_size=getattr(args, "pdf_size", "standard"))
             apply_stats = None
             corrections_path = getattr(args, "apply_corrections", None)
             if corrections_path:
@@ -272,7 +273,7 @@ def run_document_mode(args) -> int:
                             combined_pdf,
                             [(r.display_bgr, r.ocr.tokens, pdf_dpi)
                              for r in page_results],
-                            title=stem)
+                            title=stem, size=getattr(args, "pdf_size", "standard"))
                     combined_txt = os.path.join(args.output, f"{stem}_combined.txt")
                     with open(combined_txt, "w", encoding="utf-8") as f:
                         f.write("\n\n".join(r.ocr.text for r in page_results) + "\n")
@@ -452,6 +453,11 @@ def main():
                           ".json plus {stem}_corrections.json; unmatched "
                           "entries are reported, never silently dropped")
     doc.add_argument("--no-pdf", action="store_true", dest="no_pdf")
+    doc.add_argument("--pdf-size", choices=["standard", "small", "archive"],
+                     default="standard", dest="pdf_size",
+                     help="searchable-PDF page images: standard (JPEG, full "
+                          "resolution), small (<=150 DPI) or archive (lossless); "
+                          "the text layer is the same in all three")
     doc.add_argument("--pdf-text", choices=["auto", "off"], default="auto",
                      dest="pdf_text",
                      help="PDF input: keep a page's own text when it is "

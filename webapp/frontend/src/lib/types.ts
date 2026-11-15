@@ -158,3 +158,5 @@ export interface Health {
 
 export type Lang = "ne" | "hi" | "en";
 export type OcrEngine = "auto" | "rapidocr" | "tesseract";
+/** Searchable-PDF page-image preset; the text layer is identical in all. */
+export type PdfSize = "standard" | "small" | "archive";
