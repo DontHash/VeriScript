@@ -91,7 +91,8 @@ class _ReviewScreenState extends State<ReviewScreen> {
     });
     // Long work keeps running (with a progress notification) if the user
     // switches apps; short work never shows one.
-    final notice = ProcessingNotice(doc.title, () => (status, fraction))..begin();
+    final notice = ProcessingNotice(doc.title, () => (status, fraction))
+      ..begin();
     try {
       await task();
     } catch (e) {
@@ -355,38 +356,56 @@ class _ReviewScreenState extends State<ReviewScreen> {
       message('Select at least one page.');
       return;
     }
+    var smallPdf = widget.settings.getBool('smallPdf') ?? false;
     final kind = await showModalBottomSheet<ExportKind>(
       context: context,
       isScrollControlled: true,
       builder: (_) => SafeArea(
         child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Padding(
-                padding: EdgeInsets.all(24),
-                child: Text('Choose an export', style: TextStyle(fontSize: 24)),
-              ),
-              const Padding(
-                padding: EdgeInsets.fromLTRB(24, 0, 24, 16),
-                child: Text(
-                  'Text exports recognize unread selected pages first. Review names and numbers before sharing.',
-                ),
-              ),
-              ...ExportKind.values.map(
-                (kind) => ListTile(
-                  title: Text(kind.label),
-                  subtitle: Text(kind.guidance),
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 24,
-                    vertical: 8,
+          child: StatefulBuilder(
+            builder: (context, setSheet) => Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Padding(
+                  padding: EdgeInsets.all(24),
+                  child: Text(
+                    'Choose an export',
+                    style: TextStyle(fontSize: 24),
                   ),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: () => Navigator.pop(context, kind),
                 ),
-              ),
-              const SizedBox(height: 16),
-            ],
+                const Padding(
+                  padding: EdgeInsets.fromLTRB(24, 0, 24, 16),
+                  child: Text(
+                    'Text exports recognize unread selected pages first. Review names and numbers before sharing.',
+                  ),
+                ),
+                SwitchListTile(
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 24),
+                  title: const Text('Smaller PDF for sharing'),
+                  subtitle: const Text(
+                    'Page pictures at 150 DPI for messages and email. The searchable text stays the same; check small print before sending.',
+                  ),
+                  value: smallPdf,
+                  onChanged: (v) {
+                    setSheet(() => smallPdf = v);
+                    widget.settings.setBool('smallPdf', v);
+                  },
+                ),
+                ...ExportKind.values.map(
+                  (kind) => ListTile(
+                    title: Text(kind.label),
+                    subtitle: Text(kind.guidance),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 24,
+                      vertical: 8,
+                    ),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () => Navigator.pop(context, kind),
+                  ),
+                ),
+                const SizedBox(height: 16),
+              ],
+            ),
           ),
         ),
       ),
@@ -402,6 +421,7 @@ class _ReviewScreenState extends State<ReviewScreen> {
         kind,
         progress: (done, total) => setState(() => fraction = done / total),
         cancelled: () => cancelled,
+        smallPdf: smallPdf,
       );
       if (mounted) await share(file.path);
     });

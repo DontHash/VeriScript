@@ -35,8 +35,8 @@ object OfflinePages {
     private fun arg(args: Map<*, *>, key: String) = args[key] as? String ?: error("Missing $key")
     private fun dimensions(bitmap: Bitmap, path: String, note: String = "") = mapOf(
         "path" to path, "width" to bitmap.width, "height" to bitmap.height, "note" to note)
-    private fun save(bitmap: Bitmap, path: String) {
-        File(path).outputStream().use { check(bitmap.compress(Bitmap.CompressFormat.JPEG, 95, it)) { "Unable to save page" } }
+    private fun save(bitmap: Bitmap, path: String, quality: Int = 95) {
+        File(path).outputStream().use { check(bitmap.compress(Bitmap.CompressFormat.JPEG, quality, it)) { "Unable to save page" } }
     }
     /** Cheap validation for a just-captured photo: dimensions, file size and a
      * ~512px luma sample. It deliberately does not decode the full image. */
@@ -464,6 +464,15 @@ object OfflinePages {
                     }
                 }
             }
+        }
+        if (method == "shrink") {
+            // Smaller PDF pages for sharing (docs/TECH_UPGRADE_PLAN.md E3):
+            // the long side capped and a lower JPEG quality; text is untouched.
+            val maxSide = (args["maxSide"] as Number).toInt().coerceIn(400, 5000)
+            val quality = (args["quality"] as Number).toInt().coerceIn(30, 95)
+            val small = load(arg(args,"path"), maxSide)
+            try { save(small, arg(args,"out"), quality); return dimensions(small, arg(args,"out")) }
+            finally { small.recycle() }
         }
         val path = arg(args,"path")
         val image = load(path,if(method in listOf("dimensions","rotate","digitCrop","crop")) 5000 else WORKING_MAX_SIDE)

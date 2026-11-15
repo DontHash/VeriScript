@@ -25,6 +25,29 @@ Future<Uint8List> _jpegOf(String path) async {
   return img.encodeJpg(decoded, quality: 92);
 }
 
+/// Long side of a "small" PDF page: A4 at 150 DPI.
+const smallPdfMaxSide = 1754;
+const smallPdfQuality = 60;
+
+/// A page re-encoded for a smaller PDF (shared by messaging and email). The
+/// page keeps its proportions, so the text layer (in page-image pixels)
+/// still lines up: the writer scales boxes by the original width.
+Future<Uint8List> _smallJpegOf(String path, String scratch) async {
+  final out = '$scratch.page.jpg';
+  try {
+    await native.invokeMethod('shrink', {
+      'path': path,
+      'out': out,
+      'maxSide': smallPdfMaxSide,
+      'quality': smallPdfQuality,
+    });
+    return await File(out).readAsBytes();
+  } finally {
+    final file = File(out);
+    if (await file.exists()) await file.delete();
+  }
+}
+
 /// Recognised lines with usable boxes, in page-image pixels.
 List<PdfTextLine> _textLines(ScanPage page) => [
   for (final line in page.lines)
@@ -142,6 +165,7 @@ Future<File> exportDocument(
   ExportKind kind, {
   void Function(int, int)? progress,
   bool Function()? cancelled,
+  bool smallPdf = false,
 }) async {
   final pages = doc.selected.toList();
   if (pages.isEmpty) throw StateError('Select at least one page.');
@@ -169,7 +193,7 @@ Future<File> exportDocument(
           if (cancelled?.call() == true) throw StateError('Export cancelled');
           final page = pages[index];
           await pdf.addPage(
-            await _jpegOf(page.path),
+            smallPdf ? await _smallJpegOf(page.path, pending.path) : await _jpegOf(page.path),
             pixelWidth: page.width,
             pixelHeight: page.height,
             // Hidden text does not alter the scan; it makes OCR and

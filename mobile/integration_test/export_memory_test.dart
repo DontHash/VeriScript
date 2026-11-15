@@ -64,19 +64,23 @@ void main() {
     }
     await store.save(doc);
 
-    for (final kind in [ExportKind.searchablePdf, ExportKind.imagePdf]) {
+    for (final (kind, small) in [
+      (ExportKind.searchablePdf, false),
+      (ExportKind.imagePdf, false),
+      (ExportKind.searchablePdf, true),
+    ]) {
       final before = ProcessInfo.maxRss;
       final current = ProcessInfo.currentRss;
       final clock = Stopwatch()..start();
-      final file = await exportDocument(store, doc, kind);
+      final file = await exportDocument(store, doc, kind, smallPdf: small);
       clock.stop();
       final after = ProcessInfo.maxRss;
       // ignore: avoid_print
-      print('EXPORT_MEMORY ${kind.name} pages=150 page_jpeg=${jpeg.length} '
+      print('EXPORT_MEMORY ${kind.name}${small ? '_small' : ''} pages=150 page_jpeg=${jpeg.length} '
           'pdf_bytes=${await file.length()} seconds=${clock.elapsedMilliseconds / 1000} '
           'rss_before=${current ~/ 1048576}MB peak_before=${before ~/ 1048576}MB '
           'peak_after=${after ~/ 1048576}MB');
-      expect(await file.length(), greaterThan(jpeg.length * 150));
+      if (!small) expect(await file.length(), greaterThan(jpeg.length * 150));
     }
     await root.delete(recursive: true);
   }, timeout: const Timeout(Duration(minutes: 30)));
