@@ -210,6 +210,32 @@ void main() {
     });
   });
 
+  test('look-alike digits are flagged, never changed', () {
+    // Seen in the 2026-11-15 measurement: Bengali zero in a Nepali account
+    // number, and a Latin o inside a Devanagari date.
+    expect(digitScriptIssue('बैंक खाता: ০१२३४५६७८९०१'), 'bengaliDigit');
+    expect(digitScriptIssue('आजको मिति: २०८३/०७/o१'), 'letterInNumber');
+    expect(digitScriptIssue('मिति २०८३/07/01'), 'mixedDigits');
+    expect(digitScriptIssue('Invoice I2345'), 'letterInNumber');
+    // Ordinary text and numbers stay quiet.
+    expect(digitScriptIssue('कुल रकम: रु. १२,५००.७५'), isNull);
+    expect(digitScriptIssue('Total: Rs. 3,000.00 for 10lbs'), isNull);
+    expect(digitScriptIssue('Hello world, look'), isNull);
+    expect(digitScriptIssue('Date: 2026/10/17'), isNull);
+    // Values still compare across scripts; the script is reported apart.
+    expect(digitGroups('০१२'), ['012']);
+    expect(compareDigitReadings('खाता ০१२', 'खाता ०१२'), 'matched');
+    final line = {
+      'text': 'खाता ০१२',
+      'confidence': .99,
+      'digitScript': 'bengaliDigit',
+      'digitCheck': 'matched',
+    };
+    expect(needsReview(line), isTrue);
+    expect(reviewLabel(line), contains('Look-alike digit'));
+    expect(reviewLabel({...line, 'reviewed': true}), 'Confirmed by you');
+  });
+
   test('looksUpright needs enough text, mostly on upright lines', () {
     Map<String, dynamic> line(String text, double angle) => {
       'text': text,

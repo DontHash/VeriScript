@@ -162,6 +162,10 @@ class OfflineProcessor {
             },
           )
           .toList();
+      for (final line in resultLines) {
+        final issue = digitScriptIssue(line['text'] as String);
+        if (issue != null) line['digitScript'] = issue;
+      }
       var checked = 0;
       for (final line in resultLines) {
         if (digitGroups(line['text']).isEmpty) continue;
@@ -272,17 +276,51 @@ double orientationWeight(double? angle, double width, double height) {
       : .1;
 }
 
-List<String> digitGroups(String text) => RegExp(r'[0-9०-९]+')
+/// Digit runs as ASCII values. Devanagari and Bengali digits count by value,
+/// so a re-read compares numbers, not scripts; [digitScriptIssue] reports
+/// the script separately.
+List<String> digitGroups(String text) => RegExp(r'[0-9०-९০-৯]+')
     .allMatches(text)
     .map(
       (m) => String.fromCharCodes(
-        m
-            .group(0)!
-            .runes
-            .map((c) => c >= 0x966 && c <= 0x96f ? c - 0x966 + 48 : c),
+        m.group(0)!.runes.map(
+          (c) => c >= 0x966 && c <= 0x96f
+              ? c - 0x966 + 48
+              : c >= 0x9e6 && c <= 0x9ef
+              ? c - 0x9e6 + 48
+              : c,
+        ),
       ),
     )
     .toList();
+
+const _deva = r'०-९', _bengali = r'০-৯', _ascii = r'0-9';
+final _anyDigit = RegExp('[$_ascii$_deva$_bengali]');
+final _numericChars = RegExp('^[$_ascii$_deva$_bengali/.,:-]+\$');
+
+/// Why the digits on a line need a second look because of their script, or
+/// null. Never changes the text: the person decides.
+///
+/// - `bengaliDigit`: ML Kit's Devanagari model also covers Bengali, whose
+///   digits look like Devanagari ones (০ for ०); measured on 2026-11-15.
+/// - `mixedDigits`: one number mixes Devanagari and ASCII digits.
+/// - `letterInNumber`: o, O, l or I inside an otherwise numeric token
+///   (२०८३/०७/o१).
+String? digitScriptIssue(String text) {
+  if (RegExp('[$_bengali]').hasMatch(text)) return 'bengaliDigit';
+  for (final token in text.split(RegExp(r'\s+'))) {
+    if (!_anyDigit.hasMatch(token)) continue;
+    if (RegExp('[$_ascii]').hasMatch(token) &&
+        RegExp('[$_deva]').hasMatch(token)) {
+      return 'mixedDigits';
+    }
+    final stripped = token.replaceAll(RegExp(r'[oOlI]'), '');
+    if (stripped != token && _numericChars.hasMatch(stripped)) {
+      return 'letterInNumber';
+    }
+  }
+  return null;
+}
 
 /// Agreement is supporting evidence, never permission to replace the first read.
 String compareDigitReadings(String original, String alternative) {
@@ -297,6 +335,14 @@ String compareDigitReadings(String original, String alternative) {
 
 String reviewLabel(Map<String, dynamic> line) {
   if (line['reviewed'] == true) return 'Confirmed by you';
+  switch (line['digitScript']) {
+    case 'bengaliDigit':
+      return 'Look-alike digit from another script · check each digit';
+    case 'mixedDigits':
+      return 'Number mixes digit scripts · check each digit';
+    case 'letterInNumber':
+      return 'Letter inside a number · check each digit';
+  }
   return switch (line['digitCheck']) {
     'conflict' => 'Digit disagreement · tap to compare',
     'unreadable' => 'Digit re-read unclear · check the image',
@@ -314,5 +360,6 @@ bool needsReview(Map<String, dynamic> line) {
   final confidence = line['confidence'] as num?;
   return confidence == null ||
       confidence < .8 ||
-      RegExp(r'[0-9०-९�]').hasMatch(line['text'] as String);
+      line['digitScript'] != null ||
+      RegExp(r'[0-9०-९০-৯�]').hasMatch(line['text'] as String);
 }

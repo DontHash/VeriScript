@@ -153,6 +153,7 @@ class SearchablePdfWriter:
 
     def add_page(self, image_bgr: np.ndarray, tokens, dpi: Optional[int] = None) -> None:
         from reportlab.lib.utils import ImageReader
+        from reportlab.pdfbase import pdfmetrics
 
         c = self._canvas
         dpi = _estimate_dpi(image_bgr, dpi)
@@ -171,7 +172,15 @@ class SearchablePdfWriter:
             t = c.beginText()
             t.setTextRenderMode(3)  # invisible but selectable/extractable
             t.setFont(self._font, size)
-            t.setTextOrigin(x0 * px2pt, ph - y1 * px2pt)
+            # Stretch the run to the token's box so selecting text highlights
+            # the printed words, not a shorter or longer stripe
+            # (docs/TECH_UPGRADE_PLAN.md E1). Unshaped widths only set the
+            # scale; extraction still returns the exact Unicode text.
+            natural = pdfmetrics.stringWidth(text, self._font, size)
+            if natural > 0 and x1 > x0:
+                t.setHorizScale(max(10.0, min(1000.0, 100.0 * (x1 - x0) * px2pt / natural)))
+            # Baseline a little above the box bottom, where descenders end.
+            t.setTextOrigin(x0 * px2pt, ph - y1 * px2pt + (y1 - y0) * px2pt * 0.2)
             t.textOut(text)
             c.drawText(t)
         c.showPage()

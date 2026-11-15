@@ -197,6 +197,20 @@ plan) and best-frame selection, reused from the book-video path.
 tier) before claiming anything about capture. This is the biggest
 evidence gap in the mobile README.
 
+*Status 2026-11-15: no physical phone is available; the gap stays open.*
+Stand-in until then, and how far it reaches:
+
+| Question | Stand-in | Covers | Does not cover |
+|---|---|---|---|
+| Memory | API 35 x86_64 emulator with 2.5 GB RAM, below the app's 4 GB target, sampled every 3–5 s; Android's low-memory killer is the pass/fail signal | leaks, unbounded growth, worst-case peaks (it caught the 1.7 GB RapidOCR kill) | vendor memory policies, ARM native-library sizes |
+| Accuracy | paired harness on frozen images (`compare_apps`), including 12 MP camera proxies through the real import path | resolution handling, orientation, engine differences on identical bytes | real optics: blur, glare, curvature, sensor noise |
+| Speed | emulator wall-clock, reported only as before/after on the same host | regressions of 2x or more | absolute phone speed (x86 host, shared CPU) |
+| Camera | none; C2 waits for a phone | — | everything about live capture |
+
+So: no capture work (C2) ships, and no phone speed or "works on phone X"
+claim is made, until C5 is done. Memory and accuracy changes can still be
+gated on the stand-in.
+
 ### Phase D: OCR engine and honesty on mobile (weeks 6–12)
 
 **D1. Cheap orientation.** Replace the 4× full-OCR orientation loop
@@ -321,6 +335,16 @@ smoke pack; full write-up in
 | C1 resolution | Import keeps up to 4096 px (was 2500); the RapidOCR port cuts lines from the full-resolution page. | ML Kit Nepali camera CER 0.040 → 0.027 (all 5 pages better); English unchanged. **Adopted.** |
 | D1 orientation | First tried: native detector + 0/180 classifier. Slower than ML Kit's own reads on the emulator and never confident on Devanagari, so **dropped**. Adopted: read as given, stop when lines look upright, else let line angles pick the next rotation. | ML Kit 10/10 orientation; OCR + import +5% overall (gate ≤ +30%), smoke pages 2–3× faster. RapidOCR on Devanagari keeps the four-way search (its angles cannot tell up from down; not re-run after that change). |
 | RapidOCR memory | ONNX Runtime arena and memory patterns off. | Baseline was killed at 1.7 GB; now 1.0 GB peak over 16 pages, but slower. Arena on reached 1.38 GB on 3 pages: not adopted. RapidOCR speed is open (best measured on a phone). |
+
+### Phase E (first part) and loose ends (2026-11-15)
+
+| Item | What changed | Evidence |
+|---|---|---|
+| E2 born-digital PDFs | `veriscript/document/pdf_text.py`: a page keeps its own text and original page only when the text layer has ≥30 characters, is not a scan carrying another tool's OCR (one image ≥75% of the page), uses no legacy Devanagari font, contains Devanagari on a Nepali/Hindi run, and has ≤2% damaged Devanagari words (`devanagari_validity`). Studio (`text_layer`, default on) and CLI (`--pdf-text auto\|off`); mixed documents are assembled from originals plus OCR'd pages. | `tests/test_pdf_text.py` (10). On the local PDFs: English born-digital 60/60 pages kept; Nepali government, textbook and unlabeled PDFs 0/137 kept (68 damaged, 29 legacy font, 12 other-tool OCR, 24 scans, 4 no Devanagari), so they are OCR'd as before. An 11-page arXiv PDF: 2.2 s instead of OCR, identical text on 11/11 pages, 161 KB vs 169 KB source. |
+| E1 text layer (desktop) | Invisible text is stretched to each token box (`Tz`, clamped 10–1000%); baseline raised to the descender line. | `tests/test_text_layer_alignment.py`: IoU ≥ 0.7 between selection boxes and token boxes, exact English and Devanagari round trip. |
+| A4 export memory | Measured: 150 A4 pages at 300 DPI (1.8 MB JPEG each, 30 lines per page) | Searchable PDF 272 MB in 7.6 s, image PDF in 4.1 s; the app's peak memory stayed at 413 MB through both exports (no growth). |
+| RapidOCR orientation (phone) | Devanagari keeps the four-way comparison. | Re-run on the 5 Nepali camera pages: orientation 5/5, CER 0.034 (baseline 0.039), ~40 s/page, peak 903 MB, no kill. |
+| Look-alike digits (phone) | `digitScriptIssue`: Bengali digits, mixed Devanagari/ASCII digits in one number, o/O/l/I inside a number. Flagged for review, text never changed. | `test/processing_test.dart`. |
 
 ## 4. Sequencing
 

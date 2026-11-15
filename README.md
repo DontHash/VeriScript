@@ -96,6 +96,9 @@ Useful knobs (all default to the measured best configuration):
 --ocr rapidocr|tesseract     --lang en|ne|hi       --deskew
 --no-reading-order           --rotate auto|off     --repass-digits/--no-repass-digits
 --digit-verifier off|bodhan  (optional second-model digit check)
+--pdf-text auto|off          (PDF input: keep a page's own text when it is
+                              trustworthy; damaged or legacy-font Nepali text
+                              layers and scans are OCR'd either way)
 --no-pdf --no-overlay --no-txt --no-md
 ```
 

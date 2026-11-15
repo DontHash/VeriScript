@@ -287,7 +287,8 @@ def create_app() -> FastAPI:
     # -- jobs --------------------------------------------------------------
     async def _submit(request: Request, file: UploadFile, *, lang: str,
                       deskew: str, ocr: str, overlay: str, pdf: str, txt: str,
-                      md: str, all_pages: str, auto_rotate: str) -> Job:
+                      md: str, all_pages: str, auto_rotate: str,
+                      text_layer: str = "1") -> Job:
         """Validate, store and charge an upload, then queue it as a job.
 
         Never blocks the event loop: the job runs on the job worker, which
@@ -373,7 +374,8 @@ def create_app() -> FastAPI:
                        make_overlay=_flag(overlay), make_pdf=_flag(pdf),
                        make_txt=_flag(txt), make_md=_flag(md),
                        all_pages=all_pages_flag,
-                       auto_rotate=_flag(auto_rotate))
+                       auto_rotate=_flag(auto_rotate),
+                       use_text_layer=_flag(text_layer))
 
         def work(job: Job) -> Dict[str, Any]:
             try:
@@ -426,10 +428,12 @@ def create_app() -> FastAPI:
                          txt: str = Form("1"),
                          md: str = Form("1"),
                          all_pages: str = Form("0"),
-                         auto_rotate: str = Form("1")) -> JSONResponse:
+                         auto_rotate: str = Form("1"),
+                         text_layer: str = Form("1")) -> JSONResponse:
         job = await _submit(request, file, lang=lang, deskew=deskew, ocr=ocr,
                             overlay=overlay, pdf=pdf, txt=txt, md=md,
-                            all_pages=all_pages, auto_rotate=auto_rotate)
+                            all_pages=all_pages, auto_rotate=auto_rotate,
+                            text_layer=text_layer)
         return JSONResponse(job.public(jobs.position(job)),
                             status_code=status.HTTP_202_ACCEPTED,
                             headers={"Location": f"/api/jobs/{job.id}"})
@@ -456,14 +460,16 @@ def create_app() -> FastAPI:
                       txt: str = Form("1"),
                       md: str = Form("1"),
                       all_pages: str = Form("0"),
-                      auto_rotate: str = Form("1")) -> JSONResponse:
+                      auto_rotate: str = Form("1"),
+                      text_layer: str = Form("1")) -> JSONResponse:
         """Queue the upload and wait for it (scripts and the typed client).
 
         Waiting polls the job without blocking the event loop. If the caller
         goes away, the job is cancelled; it then stops between pages."""
         job = await _submit(request, file, lang=lang, deskew=deskew, ocr=ocr,
                             overlay=overlay, pdf=pdf, txt=txt, md=md,
-                            all_pages=all_pages, auto_rotate=auto_rotate)
+                            all_pages=all_pages, auto_rotate=auto_rotate,
+                            text_layer=text_layer)
         try:
             while not job.done.is_set():
                 await asyncio.sleep(0.05)

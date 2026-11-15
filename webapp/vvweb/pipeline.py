@@ -211,8 +211,13 @@ def process_page(upload_path: str, run_dir: str, run_id: str, *,
                  auto_rotate: bool = True,
                  progress: Optional[Callable[[int, int, str], None]] = None,
                  check: Optional[Callable[[], None]] = None,
-                 page_cap: Optional[int] = None) -> Dict:
+                 page_cap: Optional[int] = None,
+                 use_text_layer: bool = True) -> Dict:
     """Run restore+OCR and write canonical artifacts into run_dir.
+
+    With `use_text_layer` (default), born-digital PDF pages whose own text
+    passes the checks in `veriscript.document.pdf_text` keep that text and
+    their original page; only the others are OCR'd.
 
     `progress(page, pages, stage)` is called before each page; `check()` is
     called between pages and may raise to stop the run (jobs.JobCancelled).
@@ -223,6 +228,7 @@ def process_page(upload_path: str, run_dir: str, run_id: str, *,
 
     from veriscript.document.export import (SearchablePdfWriter,
                                  write_combined_transcript_md)
+    from veriscript.document import pdf_text
     from veriscript.document.pipeline import run_document_pipeline
 
     started = time.time()
@@ -236,6 +242,13 @@ def process_page(upload_path: str, run_dir: str, run_id: str, *,
 
     stem = f"page_{run_id[:8]}"
     cap = PAGE_CAP if page_cap is None else page_cap
+    layers = (pdf_text.check_pages(upload_path, range(total), lang)
+              if kind == "pdf" and use_text_layer else {})
+    kept = {i for i, layer in layers.items() if layer.usable}
+    # With any original page kept, the combined PDF is assembled from the
+    # per-page PDFs (originals + OCR'd scans) instead of re-drawn.
+    merge = bool(kept) and total > 1
+    page_pdfs: List = []
     first = None          # page 1's DocumentResult (its image is restored.png)
     ocr_results = []      # every page's OCRResult, in order
     combined = None       # SearchablePdfWriter once a second page exists
@@ -249,16 +262,26 @@ def process_page(upload_path: str, run_dir: str, run_id: str, *,
                 progress(n, total, f"Reading page {n} of {total}"
                          if total > 1 else "Reading the page")
             page_stem = stem if n == 1 else f"{stem}_p{idx:03d}"
-            page_result = run_document_pipeline(
-                img_bgr, backend=backend, deskew=deskew, lang=lang,
-                auto_rotate=auto_rotate, deva_lines=deva_lines,
-                out_dir=run_dir, stem=page_stem,
-                make_pdf=make_pdf, make_overlay=make_overlay,
-                make_txt=make_txt, make_json=True, make_md=make_md)
+            if idx in kept:
+                page_result = pdf_text.document_result(
+                    layers[idx], img_bgr, upload_path, out_dir=run_dir,
+                    stem=page_stem, make_pdf=make_pdf or merge,
+                    make_overlay=make_overlay, make_txt=make_txt,
+                    make_json=True, make_md=make_md)
+            else:
+                page_result = run_document_pipeline(
+                    img_bgr, backend=backend, deskew=deskew, lang=lang,
+                    auto_rotate=auto_rotate, deva_lines=deva_lines,
+                    out_dir=run_dir, stem=page_stem,
+                    make_pdf=make_pdf or merge, make_overlay=make_overlay,
+                    make_txt=make_txt, make_json=True, make_md=make_md)
             del img_bgr
+            if merge:  # originals straight from the upload (shared fonts)
+                page_pdfs.append((upload_path, idx) if idx in kept
+                                 else page_result.outputs["pdf"])
             if n == 1:
                 first = page_result
-            else:
+            elif not merge:
                 if combined is None:
                     combined = SearchablePdfWriter(combined_path, title=stem)
                     combined.add_page(first.display_bgr, first.ocr.tokens, 200)
@@ -272,6 +295,8 @@ def process_page(upload_path: str, run_dir: str, run_id: str, *,
         if combined is not None:
             combined.close()
             combined = None
+        if merge and len(page_pdfs) > 1:
+            pdf_text.merge_pdfs(combined_path, page_pdfs)
     finally:
         if combined is not None:  # stopped mid-run: drop the partial PDF
             combined.discard()
@@ -331,6 +356,9 @@ def process_page(upload_path: str, run_dir: str, run_id: str, *,
         "auto_rotate": auto_rotate,
         "all_pages": all_pages,
         "pages_processed": n_pages,
+        "pages_from_pdf_text": len(kept),
+        "text_layer": [{"page": i + 1, "kept": layer.usable, "reason": layer.reason}
+                       for i, layer in sorted(layers.items())][:200],
         "pages_capped": bool(all_pages and cap and n_pages >= cap),
         "page_cap": cap,
     }

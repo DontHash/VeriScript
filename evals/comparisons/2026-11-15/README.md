@@ -48,8 +48,8 @@ commit f1a0fc0 plus timing/rotation instrumentation only.
   reader and got two Nepali pages wrong (upside-down kept as is, 90° turned
   the wrong way: CER 0.89–0.91, hence the Nepali mean). The final code
   restores the four-way comparison for RapidOCR on Devanagari, which is the
-  baseline behaviour (5/5 there); **that change was not re-run on the
-  emulator.**
+  baseline behaviour. Re-run later the same day on the 5 Nepali camera
+  pages: orientation 5/5, CER 0.034, about 40 s/page, peak 903 MB.
 - **RapidOCR speed.** Arena off is slow (about 2–4× per read on Nepali
   pages; English pages take ~5 minutes on this emulator either way, from the
   very large English character set). A 3-page trial with the arena on and

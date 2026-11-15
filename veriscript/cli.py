@@ -224,9 +224,33 @@ def run_document_mode(args) -> int:
                 pdf_deva_lines = getattr(args, "deva_lines", "auto")
                 if pdf_deva_lines == "auto":
                     pdf_deva_lines = "off"
+                # Born-digital pages with a trustworthy text layer keep their
+                # text and original page (docs/TECH_UPGRADE_PLAN.md E2).
+                from veriscript.document import pdf_text
+                layers = (pdf_text.check_pages(src, [i for i, _, _ in pages],
+                                               args.lang, dpi=pdf_dpi)
+                          if getattr(args, "pdf_text", "auto") != "off" else {})
                 for idx, page_img, _gt in pages:
-                    status, res = process(page_img, f"{stem}_p{idx:03d}",
-                                          f"{src}#p{idx}",
+                    name = f"{stem}_p{idx:03d}"
+                    layer = layers.get(idx)
+                    if layer is not None and layer.usable:
+                        res = pdf_text.document_result(
+                            layer, page_img, src, out_dir=args.output, stem=name,
+                            make_pdf=not args.no_pdf, make_overlay=not args.no_overlay,
+                            make_txt=not args.no_txt, make_json=True,
+                            make_md=not getattr(args, "no_md", False))
+                        ok += 1
+                        records.append({"src": f"{src}#p{idx}", "name": name,
+                                        "status": "ok", "text_source": "pdf",
+                                        "tokens": len(res.ocr.tokens),
+                                        "outputs": res.outputs})
+                        print(f"  {name}: text taken from the PDF "
+                              f"({len(res.ocr.tokens)} lines, nothing to review)")
+                        page_results.append(res)
+                        continue
+                    if layer is not None:
+                        print(f"  {name}: OCR ({layer.reason})")
+                    status, res = process(page_img, name, f"{src}#p{idx}",
                                           deva_lines=pdf_deva_lines)
                     if status == "ok" and res is not None:
                         page_results.append(res)
@@ -234,11 +258,21 @@ def run_document_mode(args) -> int:
                     from veriscript.document.export import (write_combined_transcript_md,
                                                  write_searchable_pdf_pages)
                     combined_pdf = os.path.join(args.output, f"{stem}_combined.pdf")
-                    write_searchable_pdf_pages(
-                        combined_pdf,
-                        [(r.display_bgr, r.ocr.tokens, pdf_dpi)
-                         for r in page_results],
-                        title=stem)
+                    originals = {r.ocr.meta.get("page_index"): r for r in page_results
+                                 if r.ocr.backend == "pdf-text-layer"}
+                    page_pdfs = [(src, r.ocr.meta["page_index"])
+                                 if r.ocr.backend == "pdf-text-layer" else r.outputs.get("pdf")
+                                 for r in page_results]
+                    if originals and all(page_pdfs):
+                        # Keep original pages: originals from the source PDF,
+                        # OCR'd pages from their per-page PDFs.
+                        pdf_text.merge_pdfs(combined_pdf, page_pdfs)
+                    else:
+                        write_searchable_pdf_pages(
+                            combined_pdf,
+                            [(r.display_bgr, r.ocr.tokens, pdf_dpi)
+                             for r in page_results],
+                            title=stem)
                     combined_txt = os.path.join(args.output, f"{stem}_combined.txt")
                     with open(combined_txt, "w", encoding="utf-8") as f:
                         f.write("\n\n".join(r.ocr.text for r in page_results) + "\n")
@@ -418,6 +452,10 @@ def main():
                           ".json plus {stem}_corrections.json; unmatched "
                           "entries are reported, never silently dropped")
     doc.add_argument("--no-pdf", action="store_true", dest="no_pdf")
+    doc.add_argument("--pdf-text", choices=["auto", "off"], default="auto",
+                     dest="pdf_text",
+                     help="PDF input: keep a page's own text when it is "
+                          "trustworthy (auto, default) or always OCR (off)")
     doc.add_argument("--no-overlay", action="store_true", dest="no_overlay")
     doc.add_argument("--no-txt", action="store_true", dest="no_txt")
     doc.add_argument("--no-md", action="store_true", dest="no_md",
