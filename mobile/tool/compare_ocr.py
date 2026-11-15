@@ -18,6 +18,8 @@ def main():
                         help='pack folder under build/ocr-comparison (e.g. camera)')
     parser.add_argument('--tag', default='', help='suffix for output folders, e.g. _base')
     parser.add_argument('--engines', default='mlkit,rapidocr')
+    parser.add_argument('--digits', default='same', choices=['same', 'cross', 'both'],
+                        help='digit re-check: same engine, other engine, or record both')
     parser.add_argument('--import-first', action='store_true',
                         help='import each image with the default alignment/enhancement first')
     args = parser.parse_args()
@@ -51,7 +53,8 @@ def main():
     logpath = pack.parent / f'mobile-{args.pack}{args.tag}.log'
     defines = [f'--dart-define=PACK={pack_name}', f'--dart-define=TAG={args.tag}',
                f'--dart-define=ENGINES={args.engines}',
-               f'--dart-define=IMPORT={"1" if args.import_first else "0"}']
+               f'--dart-define=IMPORT={"1" if args.import_first else "0"}',
+               f'--dart-define=DIGITS={args.digits}']
     with logpath.open('w', encoding='utf-8') as log:
         process = subprocess.Popen([flutter, 'test', 'integration_test/ocr_comparison_test.dart',
                                     '-d', args.device, '--no-uninstall', *defines],

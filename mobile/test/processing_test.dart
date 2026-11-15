@@ -236,6 +236,40 @@ void main() {
     expect(reviewLabel({...line, 'reviewed': true}), 'Confirmed by you');
   });
 
+  test('ML Kit number lines are re-read by the other engine by default', () async {
+    final dir = await Directory.systemTemp.createTemp('veriscript-cross-');
+    addTearDown(() => dir.delete(recursive: true));
+    final image = File('${dir.path}/page.jpg')..writeAsStringSync('img');
+    messenger.setMockMethodCallHandler(
+      channel,
+      (call) async => call.method == 'vision#closeTextRecognizer' ? null : reading(),
+    );
+    final calls = <String>[];
+    messenger.setMockMethodCallHandler(native, (call) async {
+      calls.add(call.method);
+      if (call.method == 'digitCrop') {
+        await File(call.arguments['out']).writeAsString('crop');
+      }
+      if (call.method == 'rapidOcrLine') {
+        expect(call.arguments['language'], 'en');
+        return {'text': 'Total 129', 'confidence': .9};
+      }
+      return null;
+    });
+    final worker = OfflineProcessor('en');
+    expect(worker.digitMode, 'cross');
+    expect(OfflineProcessor('en', engine: 'rapidocr').digitMode, 'same');
+    final page = ScanPage(id: 'a', source: image.path, path: image.path);
+    await worker.recognize(page, autoRotate: false);
+    final line = page.lines.single;
+    expect(calls, containsAllInOrder(['digitCrop', 'rapidOcrLine']));
+    expect(line['digitMethod'], 'other-engine-enlarged-contrast-crop');
+    expect(line['digitAlternative'], 'Total 129');
+    expect(line['digitCheck'], 'conflict');
+    expect(line['text'], 'Total 128', reason: 'the first reading is never replaced');
+    expect(reviewLabel(line), 'Second reader disagrees on digits · tap to compare');
+  });
+
   test('looksUpright needs enough text, mostly on upright lines', () {
     Map<String, dynamic> line(String text, double angle) => {
       'text': text,

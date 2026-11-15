@@ -20,6 +20,7 @@ const packName = String.fromEnvironment('PACK', defaultValue: 'ocr-comparison');
 const tag = String.fromEnvironment('TAG');
 const engines = String.fromEnvironment('ENGINES', defaultValue: 'mlkit,rapidocr');
 const importFirst = String.fromEnvironment('IMPORT') == '1';
+const digitMode = String.fromEnvironment('DIGITS', defaultValue: 'same');
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
@@ -59,7 +60,8 @@ void main() {
             height: row['height'],
           );
         }
-        final processor = OfflineProcessor(row['lang'], engine: engine);
+        final processor = OfflineProcessor(row['lang'], engine: engine)
+          ..digitMode = digitMode;
         final clock = Stopwatch()..start();
         await processor.recognize(page);
         clock.stop();

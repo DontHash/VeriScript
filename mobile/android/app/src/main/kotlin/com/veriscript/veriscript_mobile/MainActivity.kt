@@ -53,9 +53,10 @@ class MainActivity : FlutterActivity() {
                 worker.execute {
                     try {
                         val args = call.arguments as? Map<*, *> ?: emptyMap<Any, Any>()
-                        val output = if (call.method == "rapidOcr") {
+                        val output = if (call.method == "rapidOcr" || call.method == "rapidOcrLine") {
                             val reader = rapidOcr ?: RapidOcr(applicationContext).also { rapidOcr = it }
-                            reader.run(args, cancelled)
+                            if (call.method == "rapidOcr") reader.run(args, cancelled)
+                            else reader.readLine(args, cancelled)
                         } else OfflinePages.run(call.method, args, cancelled) { done, total ->
                             runOnUiThread { channel.invokeMethod("progress", mapOf("done" to done, "total" to total)) }
                         }

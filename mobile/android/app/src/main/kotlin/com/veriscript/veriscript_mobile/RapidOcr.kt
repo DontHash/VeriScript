@@ -221,6 +221,20 @@ class RapidOcr(private val context: Context) : AutoCloseable {
         }
         return results
     }
+    /** Recognition only, on an image that is already one text line (a digit
+     * check crop): no page detection, so a second opinion costs one
+     * recognizer pass (docs/TECH_UPGRADE_PLAN.md D2). */
+    fun readLine(args: Map<*, *>, cancel: AtomicBoolean): Map<String, Any> {
+        check(OpenCVLoader.initLocal()) { "OpenCV unavailable" }
+        return Arena().use { a ->
+            val image = a.own(Imgcodecs.imread(args["path"] as String))
+            require(!image.empty()) { "Unable to read OCR image" }
+            if (image.rows().toDouble() / image.cols() >= 1.5) Core.rotate(image, image, Core.ROTATE_90_COUNTERCLOCKWISE)
+            val (text, confidence, _) = recognize(listOf(image), args["language"] == "en", cancel).single()
+            mapOf("text" to text, "confidence" to confidence)
+        }
+    }
+
     fun run(args: Map<*, *>, cancel: AtomicBoolean): List<Map<String,Any>> {
         check(OpenCVLoader.initLocal()) { "OpenCV unavailable" }
         check(cancel)

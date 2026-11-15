@@ -17,6 +17,28 @@ class OfflineProcessor {
   List<int> lastTried = const [];
   int get lastReads => lastTried.length;
 
+  /// How number lines are re-checked (docs/TECH_UPGRADE_PLAN.md D2):
+  /// 'same' - the same engine reads an enlarged, contrast-adjusted crop;
+  /// 'cross' - the other bundled engine reads that crop (independent);
+  /// 'both' - record both, decide with 'same' (for measurement only).
+  /// Default: 'cross' with ML Kit (measured 2026-11-16: 2 of 4 wrong number
+  /// lines caught vs 1, false alarms 6% vs 10%, 68 vs 84 ms per line);
+  /// 'same' with RapidOCR until that direction is measured.
+  late String digitMode = engine == 'mlkit' ? 'cross' : 'same';
+
+  /// The other engine's reading of a digit crop (recognition only).
+  Future<String> _crossRead(String crop, TextRecognizer? mlkit) async {
+    if (engine == 'mlkit') {
+      final result = await native.invokeMapMethod<String, dynamic>(
+        'rapidOcrLine',
+        {'path': crop, 'language': language},
+      );
+      return (result?['text'] as String?) ?? '';
+    }
+    final result = await mlkit!.processImage(InputImage.fromFilePath(crop));
+    return result.blocks.expand((b) => b.lines).map((l) => l.text).join('\n');
+  }
+
   /// The chosen read's text in the engine's own line order, before
   /// [sortLines] (for measuring the reading-order step).
   String lastEngineOrderText = '';
@@ -70,6 +92,9 @@ class OfflineProcessor {
       throw ArgumentError('Unknown OCR engine: $engine');
     }
     final reader = engine == 'mlkit' ? recognizer : null;
+    final crossReader = engine == 'rapidocr' && digitMode != 'same' && checkDigits
+        ? recognizer
+        : null;
     final paths = <String>[];
     try {
       List<Map<String, dynamic>>? best;
@@ -190,13 +215,31 @@ class OfflineProcessor {
           'out': crop,
           'bbox': line['bbox'],
         });
-        final repeat = (await _read(
-          crop,
-          reader,
-        )).map((l) => l['text']).join('\n');
-        line['digitAlternative'] = repeat;
-        line['digitCheck'] = compareDigitReadings(line['original'], repeat);
-        line['digitMethod'] = 'same-engine-enlarged-contrast-crop';
+        final clock = Stopwatch()..start();
+        if (digitMode != 'cross') {
+          final repeat = (await _read(
+            crop,
+            reader,
+          )).map((l) => l['text']).join('\n');
+          line['digitAlternative'] = repeat;
+          line['digitCheck'] = compareDigitReadings(line['original'], repeat);
+          line['digitMethod'] = 'same-engine-enlarged-contrast-crop';
+        }
+        final sameMs = clock.elapsedMilliseconds;
+        if (digitMode != 'same') {
+          final cross = await _crossRead(crop, crossReader);
+          final verdict = compareDigitReadings(line['original'], cross);
+          if (digitMode == 'cross') {
+            line['digitAlternative'] = cross;
+            line['digitCheck'] = verdict;
+            line['digitMethod'] = 'other-engine-enlarged-contrast-crop';
+          } else {
+            line['digitCrossAlternative'] = cross;
+            line['digitCrossCheck'] = verdict;
+            line['digitSameMs'] = sameMs;
+            line['digitCrossMs'] = clock.elapsedMilliseconds - sameMs;
+          }
+        }
       }
       if (cancelled) throw StateError('Operation cancelled');
       // Commit a complete page only. A cancelled digit check must not overwrite
@@ -211,6 +254,7 @@ class OfflineProcessor {
       paths.remove(resultPath);
     } finally {
       await reader?.close();
+      await crossReader?.close();
       for (final path in paths) {
         final file = File(path);
         if (await file.exists()) await file.delete();
@@ -342,6 +386,10 @@ String compareDigitReadings(String original, String alternative) {
   return 'matched';
 }
 
+/// Whether the digits were re-read by the other engine (independent check).
+bool crossChecked(Map<String, dynamic> line) =>
+    (line['digitMethod'] as String? ?? '').startsWith('other-engine');
+
 String reviewLabel(Map<String, dynamic> line) {
   if (line['reviewed'] == true) return 'Confirmed by you';
   switch (line['digitScript']) {
@@ -353,9 +401,15 @@ String reviewLabel(Map<String, dynamic> line) {
       return 'Letter inside a number · check each digit';
   }
   return switch (line['digitCheck']) {
-    'conflict' => 'Digit disagreement · tap to compare',
-    'unreadable' => 'Digit re-read unclear · check the image',
-    'matched' => 'Digit re-read agrees · confirm against the image',
+    'conflict' => crossChecked(line)
+        ? 'Second reader disagrees on digits · tap to compare'
+        : 'Digit disagreement · tap to compare',
+    'unreadable' => crossChecked(line)
+        ? 'Second reader could not read the digits · check the image'
+        : 'Digit re-read unclear · check the image',
+    'matched' => crossChecked(line)
+        ? 'Second reader agrees · confirm against the image'
+        : 'Digit re-read agrees · confirm against the image',
     'notChecked' => 'Digits not re-checked · tap to review',
     _ =>
       needsReview(line)
