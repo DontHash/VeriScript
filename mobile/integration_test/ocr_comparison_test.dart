@@ -77,6 +77,15 @@ void main() {
             'page': page.toJson(),
           }),
         );
+        // Same read in the engine's own order: scored as its own "engine"
+        // to measure the reading-order step on identical recognition.
+        final raw = Directory('${output.path}_engineorder');
+        await raw.create(recursive: true);
+        await File('${raw.path}/${row['id']}.txt')
+            .writeAsString(processor.lastEngineOrderText);
+        await File('${raw.path}/${row['id']}.json').writeAsString(
+          jsonEncode({'image_sha256': row['sha256'], 'rotation': processor.lastRotation}),
+        );
         // Empty OCR is a valid measured failure, not a reason to hide a page.
         // ignore: avoid_print
         print(

@@ -217,6 +217,73 @@ def prepare_camera(pack: Path) -> None:
     print(f"Prepared {len(entries)} camera-proxy pages at {pack}", flush=True)
 
 
+def prepare_columns(pack: Path) -> None:
+    """Two-column 12 MP page proxies (docs/TECH_UPGRADE_PLAN.md D4).
+
+    Same frame and degradations as `prepare_camera`, but the text sits in two
+    columns; the ground truth is the left column, then the right column (how
+    a person reads it). Synthetic: tests reading order, not photo accuracy.
+    """
+    if (pack / "manifest.json").exists():
+        raise SystemExit("Pack already exists. Reuse it or select a new --pack directory.")
+    (pack / "pages").mkdir(parents=True, exist_ok=True)
+    (pack / "gt").mkdir(exist_ok=True)
+    font_path = ROOT / "mobile/assets/Mukta-Regular.ttf"
+    rng = np.random.default_rng(20261116)
+    frame_w, frame_h = 3024, 4032
+    page_h = int(frame_h * 0.88)
+    page_w = int(page_h * 210 / 297)
+    px_per_mm = page_h / 297.0
+    entries = []
+    for lang, lines in [("en", CAMERA_ENGLISH), ("ne", CAMERA_NEPALI)]:
+        size = round(8 * 0.3528 * px_per_mm)
+        page = Image.new("RGB", (page_w, page_h), "white")
+        draw = ImageDraw.Draw(page)
+        font = ImageFont.truetype(str(font_path), size)
+        margin, gutter = int(15 * px_per_mm), int(10 * px_per_mm)
+        col_w = (page_w - 2 * margin - gutter) // 2
+        step = int(size * 1.9)
+        # Each column holds the 16 lines, split at word boundaries to fit.
+        columns = [[], []]
+        for c, chunk in enumerate((lines[:8], lines[8:])):
+            for line in chunk:
+                words, cur = line.split(), ""
+                for w in words:
+                    trial = f"{cur} {w}".strip()
+                    if draw.textlength(trial, font=font) > col_w and cur:
+                        columns[c].append(cur)
+                        cur = w
+                    else:
+                        cur = trial
+                if cur:
+                    columns[c].append(cur)
+        for c, col in enumerate(columns):
+            x = margin + c * (col_w + gutter)
+            for i, line in enumerate(col):
+                if lang == "ne" and not features.check_feature("raqm"):
+                    draw_shaped(page, line, font_path, size, x, margin + size + i * step)
+                else:
+                    draw.text((x, margin + i * step), line, font=font, fill="black")
+        frame = Image.new("RGB", (frame_w, frame_h), (118, 112, 104))
+        frame.paste(page, ((frame_w - page_w) // 2, (frame_h - page_h) // 2))
+        a = cv2.GaussianBlur(np.asarray(frame).astype(np.float32), (0, 0), 0.9)
+        a += rng.normal(0, 2.5, a.shape).astype(np.float32)
+        image = Image.fromarray(np.clip(a, 0, 255).astype(np.uint8))
+        page_id = f"cols_{lang}_8pt"
+        path = pack / "pages" / f"{page_id}.jpg"
+        image.save(path, quality=92)
+        gt = pack / "gt" / f"{page_id}.txt"
+        gt.write_text("\n".join(columns[0] + columns[1]), encoding="utf-8")
+        entries.append(dict(id=page_id, image=f"pages/{page_id}.jpg", gt=f"gt/{page_id}.txt",
+                            sha256=digest(path), gt_sha256=digest(gt), lang=lang,
+                            family="camera-proxy-columns", authority="exact-rendered-text",
+                            source="12 MP frame, two columns, 8 pt", width=image.width,
+                            height=image.height, expected_rotation=0, **{"import": True}))
+    (pack / "manifest.json").write_text(json.dumps(dict(version=1, entries=entries),
+                                                      ensure_ascii=False, indent=2), encoding="utf-8")
+    print(f"Prepared {len(entries)} two-column pages at {pack}", flush=True)
+
+
 def entries(pack):
     rows = json.loads((pack / "manifest.json").read_text(encoding="utf-8"))["entries"]
     for row in rows:
@@ -313,7 +380,8 @@ def score(pack):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=["prepare", "prepare-camera", "desktop", "score"])
+    parser.add_argument("action", choices=["prepare", "prepare-camera", "prepare-columns",
+                                           "desktop", "score"])
     parser.add_argument("--pack", type=Path, default=DEFAULT_PACK)
     parser.add_argument("--modes", nargs='+', choices=["desktop_raw", "desktop_pipeline", "desktop_deva_auto"])
     args = parser.parse_args()
@@ -321,5 +389,7 @@ if __name__ == "__main__":
         desktop(args.pack.resolve(), args.modes)
     elif args.action == 'prepare-camera':
         prepare_camera(args.pack.resolve())
+    elif args.action == 'prepare-columns':
+        prepare_columns(args.pack.resolve())
     else:
         globals()[args.action](args.pack.resolve())

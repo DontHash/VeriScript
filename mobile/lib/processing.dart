@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 import 'documents.dart';
+import 'layout.dart';
 
 class OfflineProcessor {
   OfflineProcessor(this.language, {this.engine = 'mlkit'});
@@ -15,6 +16,10 @@ class OfflineProcessor {
   /// number of full-page reads orientation needed).
   List<int> lastTried = const [];
   int get lastReads => lastTried.length;
+
+  /// The chosen read's text in the engine's own line order, before
+  /// [sortLines] (for measuring the reading-order step).
+  String lastEngineOrderText = '';
 
   TextRecognizer get recognizer => TextRecognizer(
     script: language == 'en'
@@ -153,7 +158,11 @@ class OfflineProcessor {
         resultWidth = info!['width'];
         resultHeight = info['height'];
       }
-      final resultLines = best!
+      // Reading order (docs/TECH_UPGRADE_PLAN.md D4): two-column pages and
+      // tables come back from the engines row by row; the desktop's measured
+      // algorithm puts them in reading order and leaves everything else as is.
+      lastEngineOrderText = best!.map((l) => l['text'] as String).join('\n');
+      final resultLines = sortLines(best!)
           .map(
             (l) => <String, dynamic>{
               ...l,
