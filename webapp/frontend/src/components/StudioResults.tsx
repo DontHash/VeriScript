@@ -20,6 +20,12 @@ const DOWNLOADS: { key: keyof RunFiles; name: string; what: string }[] = [
   { key: "md", name: "transcript.md", what: "Markdown transcript" },
   { key: "combined_md", name: "combined.md", what: "Markdown transcript, all pages" },
   { key: "json", name: "ocr.json", what: "OCR data: tokens, flags and review queue" },
+  {
+    key: "tables_xlsx",
+    name: "tables.xlsx",
+    what: "Tables as a spreadsheet; numbers to check are highlighted and listed",
+  },
+  { key: "tables_csv", name: "tables.csv", what: "Tables as CSV" },
 ];
 
 /** Everything a finished run produces, organised in tabs. */

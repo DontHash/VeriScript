@@ -59,6 +59,8 @@ export interface RunFiles {
   combined_pdf?: string;
   combined_txt?: string;
   combined_md?: string;
+  tables_xlsx?: string;
+  tables_csv?: string;
   corrected_pdf?: string;
   corrected_txt?: string;
   corrected_md?: string;

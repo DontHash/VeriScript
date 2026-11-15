@@ -160,6 +160,13 @@ def run_document_mode(args) -> int:
                 make_txt=not args.no_txt, make_json=True,
                 make_md=not getattr(args, "no_md", False),
                 pdf_size=getattr(args, "pdf_size", "standard"))
+            if not getattr(args, "no_tables", False):
+                from veriscript.document import tables as doc_tables
+                found = doc_tables.extract_tables(res.ocr.tokens)
+                written = doc_tables.export_tables(args.output, name, found)
+                res.outputs.update(written)
+                if found:
+                    print(f"  {name}: {len(found)} table(s) -> {os.path.basename(written['tables_xlsx'])}")
             apply_stats = None
             corrections_path = getattr(args, "apply_corrections", None)
             if corrections_path:
@@ -453,6 +460,8 @@ def main():
                           ".json plus {stem}_corrections.json; unmatched "
                           "entries are reported, never silently dropped")
     doc.add_argument("--no-pdf", action="store_true", dest="no_pdf")
+    doc.add_argument("--no-tables", action="store_true", dest="no_tables",
+                     help="do not write <name>_tables.xlsx/.csv for detected tables")
     doc.add_argument("--pdf-size", choices=["standard", "small", "archive"],
                      default="standard", dest="pdf_size",
                      help="searchable-PDF page images: standard (JPEG, full "

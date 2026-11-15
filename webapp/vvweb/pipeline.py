@@ -138,6 +138,8 @@ KEY_MAP = {
     "combined.pdf": "combined_pdf",
     "combined.txt": "combined_txt",
     "combined.md": "combined_md",
+    "tables.xlsx": "tables_xlsx",
+    "tables.csv": "tables_csv",
 }
 
 
@@ -230,6 +232,7 @@ def process_page(upload_path: str, run_dir: str, run_id: str, *,
     from veriscript.document.export import (SearchablePdfWriter,
                                  write_combined_transcript_md)
     from veriscript.document import pdf_text
+    from veriscript.document import tables as doc_tables
     from veriscript.document.pipeline import run_document_pipeline
 
     started = time.time()
@@ -250,6 +253,7 @@ def process_page(upload_path: str, run_dir: str, run_id: str, *,
     # per-page PDFs (originals + OCR'd scans) instead of re-drawn.
     merge = bool(kept) and total > 1
     page_pdfs: List = []
+    page_tables = []      # tables found on any page (F2)
     first = None          # page 1's DocumentResult (its image is restored.png)
     ocr_results = []      # every page's OCRResult, in order
     combined = None       # SearchablePdfWriter once a second page exists
@@ -291,6 +295,8 @@ def process_page(upload_path: str, run_dir: str, run_id: str, *,
                 combined.add_page(page_result.display_bgr,
                                   page_result.ocr.tokens, 200)
             ocr_results.append(page_result.ocr)
+            if page_result.ocr.backend != "pdf-text-layer":
+                page_tables.extend(doc_tables.extract_tables(page_result.ocr.tokens, page=n))
         if check:
             check()
         if progress and total > 1:
@@ -340,6 +346,11 @@ def process_page(upload_path: str, run_dir: str, run_id: str, *,
         if make_md:
             files["combined.md"] = os.path.join(run_dir, "combined.md")
 
+    # Tables -> spreadsheet with the uncertain cells marked (F2) ------------
+    if page_tables:
+        doc_tables.write_xlsx(os.path.join(run_dir, "tables.xlsx"), page_tables)
+        doc_tables.write_csv(os.path.join(run_dir, "tables.csv"), page_tables)
+
     # Review queue + summary from the written ocr.json (single source) -----
     summary = collect_run_summary(run_dir, run_id)
 
@@ -361,6 +372,7 @@ def process_page(upload_path: str, run_dir: str, run_id: str, *,
         "pages_processed": n_pages,
         "pages_from_pdf_text": len(kept),
         "pdf_size": pdf_size,
+        "tables": len(page_tables),
         "text_layer": [{"page": i + 1, "kept": layer.usable, "reason": layer.reason}
                        for i, layer in sorted(layers.items())][:200],
         "pages_capped": bool(all_pages and cap and n_pages >= cap),
