@@ -86,7 +86,7 @@ export function StudioResults(props: { state: StudioState }) {
           <Show when={s.restoredAt()}>
             {(at) => (
               <p class="field__hint" role="status">
-                Your last result, from{" "}
+                {s.openedTitle() ? `${s.openedTitle()}, from your library: saved ` : "Your last result, from "}
                 {new Date(at()).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}.
                 The original image is not kept in the browser, so Compare shows the result only.
               </p>

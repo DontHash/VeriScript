@@ -5,6 +5,7 @@ import { liveMessage } from "./lib/announce";
 import { TopBar } from "./components/TopBar";
 import { Landing } from "./routes/Landing";
 import { Studio } from "./routes/Studio";
+import { Library } from "./routes/Library";
 
 function Layout(props: { children?: unknown }) {
   const location = useLocation();
@@ -34,6 +35,7 @@ export function App() {
     <Router root={Layout}>
       <Route path="/" component={Landing} />
       <Route path="/studio" component={Studio} />
+      <Route path="/library" component={Library} />
     </Router>
   );
 }

@@ -131,6 +131,19 @@ export interface JobStatus {
   error_status?: number;
 }
 
+/** GET /api/library: one kept document (desktop app only). */
+export interface LibraryDoc {
+  run_id: string;
+  title: string;
+  /** Unix seconds. */
+  created: number;
+  pages: number;
+  flagged: number;
+  input_kind: "image" | "pdf";
+  lang?: string;
+  corrected: boolean;
+}
+
 export interface Health {
   ok: boolean;
   version: string;

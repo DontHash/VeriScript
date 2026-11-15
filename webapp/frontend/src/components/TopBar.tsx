@@ -1,10 +1,13 @@
 import { A, useLocation } from "@solidjs/router";
+import { Show } from "solid-js";
 import { announce } from "../lib/announce";
+import { isLocal } from "../lib/health";
 import { cycleTheme, themeChoice, themeLabel } from "../lib/theme";
 
 export function TopBar() {
   const location = useLocation();
   const isStudio = () => location.pathname.startsWith("/studio");
+  const isLibrary = () => location.pathname.startsWith("/library");
 
   return (
     <header class="topbar">
@@ -42,6 +45,15 @@ export function TopBar() {
           >
             GitHub
           </a>
+          <Show when={isLocal()}>
+            <A
+              class="nav-link"
+              href="/library"
+              aria-current={isLibrary() ? "page" : undefined}
+            >
+              Library
+            </A>
+          </Show>
           <A
             class="btn btn--ghost btn--small"
             href="/studio"

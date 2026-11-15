@@ -1,4 +1,6 @@
-import { createSignal, Show } from "solid-js";
+import { createSignal, onMount, Show } from "solid-js";
+import { useSearchParams } from "@solidjs/router";
+import { fetchRunSummary } from "../lib/api";
 import { TabPanel, Tabs } from "../components/Tabs";
 import { VideoScanner } from "../components/VideoScanner";
 import { StudioPanel } from "../components/StudioPanel";
@@ -9,6 +11,20 @@ import { isLocal } from "../lib/health";
 export function Studio() {
   const studio = createStudioState();
   const [mode, setMode] = createSignal<"page" | "video">("page");
+  const [params] = useSearchParams();
+
+  // /studio?run=<id>: open a kept document from the desktop library.
+  onMount(async () => {
+    const runId = typeof params.run === "string" ? params.run : undefined;
+    if (!runId) return;
+    try {
+      const kept = await fetchRunSummary(runId);
+      const created = (kept.meta as { created?: number }).created;
+      studio.openKept(kept, kept.title, created ? created * 1000 : Date.now());
+    } catch {
+      studio.openKeptFailed();
+    }
+  });
 
   return (
     <div class="studio">

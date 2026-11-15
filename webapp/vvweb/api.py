@@ -380,6 +380,9 @@ def create_app() -> FastAPI:
                        use_text_layer=_flag(text_layer),
                        pdf_size=pdf_size if pdf_size in PDF_SIZES else "standard")
 
+        # Library title: the uploaded file's name without its extension.
+        title = os.path.splitext(os.path.basename(file.filename or ""))[0][:120]             or "Untitled"
+
         def work(job: Job) -> Dict[str, Any]:
             try:
                 try:
@@ -394,7 +397,10 @@ def create_app() -> FastAPI:
                 except OSError:
                     pass
             store.write_manifest(run_id, {"meta": payload.get("meta", {}),
-                                          "files": list(PUBLIC_FILES.keys())})
+                                          "files": list(PUBLIC_FILES.keys()),
+                                          "title": title,
+                                          "created": int(time.time()),
+                                          "status_line": payload.get("status_line", "")})
             payload["expires_in"] = settings.run_ttl_seconds
             return payload
 
@@ -632,6 +638,8 @@ def create_app() -> FastAPI:
     from .video import register_video_routes
     import sys
     register_video_routes(app, sys.modules[__name__])
+    from .library import register_library_routes
+    register_library_routes(app, sys.modules[__name__])
 
     # -- frontend ----------------------------------------------------------
     if os.path.isdir(FRONTEND_DIST):

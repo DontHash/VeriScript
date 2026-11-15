@@ -106,6 +106,8 @@ export function createStudioState() {
   const [appliedSigs, setAppliedSigs] = createSignal<Record<number, string>>({});
   /** When the shown result came back from a previous visit (ms), else null. */
   const [restoredAt, setRestoredAt] = createSignal<number | null>(null);
+  /** Title of a document reopened from the desktop library, else null. */
+  const [openedTitle, setOpenedTitle] = createSignal<string | null>(null);
   /** A short notice about the last file choice (e.g. extra files ignored). */
   const [notice, setNotice] = createSignal<string | null>(null);
   let savedAt = Date.now();
@@ -199,6 +201,22 @@ export function createStudioState() {
     resetCorrections();
   };
 
+  /** Show a kept result from the desktop library. */
+  const openKept = (payload: RunPayload, title: string, createdMs: number) => {
+    controller?.abort();
+    resetCorrections();
+    savedAt = createdMs;
+    setFile(null);
+    setInputUrl(null);
+    setError(null);
+    setNotice(null);
+    setResult(payload);
+    setRestoredAt(createdMs);
+    setOpenedTitle(title);
+    setPhase("done");
+    announce(`Opened ${title} from your library.`);
+  };
+
   const clearFile = () => {
     if (inputUrl()) URL.revokeObjectURL(inputUrl()!);
     setNotice(null);
@@ -226,6 +244,7 @@ export function createStudioState() {
   const start = async () => {
     const f = file();
     if (!f || phase() === "running") return;
+    setOpenedTitle(null);
     setPhase("running");
     setError(null);
     setElapsed(0);
@@ -405,6 +424,12 @@ export function createStudioState() {
     setShowBoxes,
     chooseFile,
     chooseFiles,
+    openKept,
+    openKeptFailed: () => {
+      setError("That document is no longer in your library.");
+      setPhase("error");
+    },
+    openedTitle,
     job,
     clearFile,
     cancel,

@@ -6,6 +6,7 @@ import type {
   Health,
   JobStatus,
   Lang,
+  LibraryDoc,
   OcrEngine,
   PdfSize,
   RunPayload,
@@ -221,6 +222,35 @@ export async function fetchDiagnostics(): Promise<string> {
   const res = await request("/api/diagnostics");
   if (!res.ok) throw await parseError(res);
   return ((await res.json()) as { text: string }).text;
+}
+
+/** Desktop library: kept documents, newest first; `q` searches title + text. */
+export async function fetchLibrary(q = ""): Promise<LibraryDoc[]> {
+  const res = await request(`/api/library?q=${encodeURIComponent(q)}`);
+  if (!res.ok) throw await parseError(res);
+  return ((await res.json()) as { documents: LibraryDoc[] }).documents;
+}
+
+/** A kept result, in the same shape a finished run returns. */
+export async function fetchRunSummary(runId: string): Promise<RunPayload & { title: string }> {
+  const res = await request(`/api/runs/${encodeURIComponent(runId)}/summary`);
+  if (!res.ok) throw await parseError(res);
+  return (await res.json()) as RunPayload & { title: string };
+}
+
+export async function renameRun(runId: string, title: string): Promise<string> {
+  const res = await request(`/api/runs/${encodeURIComponent(runId)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title }),
+  });
+  if (!res.ok) throw await parseError(res);
+  return ((await res.json()) as { title: string }).title;
+}
+
+export async function deleteRun(runId: string): Promise<void> {
+  const res = await request(`/api/runs/${encodeURIComponent(runId)}`, { method: "DELETE" });
+  if (!res.ok) throw await parseError(res);
 }
 
 export { ApiError };

@@ -26,6 +26,9 @@ the computer.
   quotas: 200 MB uploads, no daily page limits, no PDF page cap or run
   timeout (long files run as background jobs with progress and Cancel), and
   results kept until you delete them.
+- **Library.** Every result stays in the app-data folder until deleted.
+  The studio's **Library** page lists them, searches their titles and text,
+  and reopens, renames or deletes them (desktop only; the demo hides it).
 - **Where files go.** Runs go to the app-data folder
   (`%APPDATA%\live.veriscript.desktop\runs` on Windows). The server log goes
   to the app log folder (`%LOCALAPPDATA%\live.veriscript.desktop\logs\server.log`)
