@@ -21,10 +21,11 @@ class OfflineProcessor {
   /// 'same' - the same engine reads an enlarged, contrast-adjusted crop;
   /// 'cross' - the other bundled engine reads that crop (independent);
   /// 'both' - record both, decide with 'same' (for measurement only).
-  /// Default: 'cross' with ML Kit (measured 2026-11-16: 2 of 4 wrong number
-  /// lines caught vs 1, false alarms 6% vs 10%, 68 vs 84 ms per line);
-  /// 'same' with RapidOCR until that direction is measured.
-  late String digitMode = engine == 'mlkit' ? 'cross' : 'same';
+  /// Default 'cross' for both readers (measured 2026-11-16 on 16 pages):
+  /// ML Kit reading: wrong number lines caught 2/4 vs 1/4, false alarms 6% vs
+  /// 10%, 68 vs 84 ms per line; RapidOCR reading: caught 2/3 vs 0/3, false
+  /// alarms 12% vs 32%, 0.1 s vs 4.8 s per line.
+  String digitMode = 'cross';
 
   /// The other engine's reading of a digit crop (recognition only).
   Future<String> _crossRead(String crop, TextRecognizer? mlkit) async {

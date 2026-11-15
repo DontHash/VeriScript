@@ -258,7 +258,7 @@ void main() {
     });
     final worker = OfflineProcessor('en');
     expect(worker.digitMode, 'cross');
-    expect(OfflineProcessor('en', engine: 'rapidocr').digitMode, 'same');
+    expect(OfflineProcessor('en', engine: 'rapidocr').digitMode, 'cross');
     final page = ScanPage(id: 'a', source: image.path, path: image.path);
     await worker.recognize(page, autoRotate: false);
     final line = page.lines.single;
