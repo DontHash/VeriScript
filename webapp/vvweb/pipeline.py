@@ -215,7 +215,8 @@ def process_page(upload_path: str, run_dir: str, run_id: str, *,
                  check: Optional[Callable[[], None]] = None,
                  page_cap: Optional[int] = None,
                  use_text_layer: bool = True,
-                 pdf_size: str = "standard") -> Dict:
+                 pdf_size: str = "standard",
+                 title: Optional[str] = None) -> Dict:
     """Run restore+OCR and write canonical artifacts into run_dir.
 
     With `use_text_layer` (default), born-digital PDF pages whose own text
@@ -280,7 +281,7 @@ def process_page(upload_path: str, run_dir: str, run_id: str, *,
                     out_dir=run_dir, stem=page_stem,
                     make_pdf=make_pdf or merge, make_overlay=make_overlay,
                     make_txt=make_txt, make_json=True, make_md=make_md,
-                    pdf_size=pdf_size)
+                    pdf_size=pdf_size, title=title)
             del img_bgr
             if merge:  # originals straight from the upload (shared fonts)
                 page_pdfs.append((upload_path, idx) if idx in kept
@@ -289,7 +290,7 @@ def process_page(upload_path: str, run_dir: str, run_id: str, *,
                 first = page_result
             elif not merge:
                 if combined is None:
-                    combined = SearchablePdfWriter(combined_path, title=stem,
+                    combined = SearchablePdfWriter(combined_path, title=title or stem,
                                                    size=pdf_size)
                     combined.add_page(first.display_bgr, first.ocr.tokens, 200)
                 combined.add_page(page_result.display_bgr,
@@ -340,7 +341,7 @@ def process_page(upload_path: str, run_dir: str, run_id: str, *,
             f.write("\n\n".join(r.text for r in ocr_results) + "\n")
         if make_md:
             write_combined_transcript_md(
-                os.path.join(run_dir, "combined.md"), ocr_results, title=stem)
+                os.path.join(run_dir, "combined.md"), ocr_results, title=title or stem)
         files["combined.pdf"] = combined_path
         files["combined.txt"] = os.path.join(run_dir, "combined.txt")
         if make_md:

@@ -251,9 +251,10 @@ class SearchablePdfWriter:
 
 def write_searchable_pdf(path: str, image_bgr: np.ndarray, tokens: List[Token],
                          dpi: Optional[int] = None,
-                         size: str = DEFAULT_PDF_SIZE) -> str:
+                         size: str = DEFAULT_PDF_SIZE,
+                         title: Optional[str] = None) -> str:
     """Image page + invisible, selectable text at token boxes."""
-    return write_searchable_pdf_pages(path, [(image_bgr, tokens, dpi)], size=size)
+    return write_searchable_pdf_pages(path, [(image_bgr, tokens, dpi)], title=title, size=size)
 
 
 def _tok_color(tok: Token):
@@ -461,7 +462,8 @@ def export_document_outputs(out_dir: str, stem: str, image_bgr: np.ndarray,
                             make_txt: bool = True, make_json: bool = True,
                             make_md: bool = True,
                             overlay_source: Optional[np.ndarray] = None,
-                            pdf_size: str = DEFAULT_PDF_SIZE) -> Dict[str, str]:
+                            pdf_size: str = DEFAULT_PDF_SIZE,
+                            title: Optional[str] = None) -> Dict[str, str]:
     """Write the product outputs. `overlay_source` lets the caller draw boxes on
     the restored/display image instead of the raw input."""
     os.makedirs(out_dir, exist_ok=True)
@@ -469,7 +471,7 @@ def export_document_outputs(out_dir: str, stem: str, image_bgr: np.ndarray,
     if make_pdf:
         written["pdf"] = write_searchable_pdf(os.path.join(out_dir, f"{stem}.pdf"),
                                               image_bgr, result.tokens, dpi=dpi,
-                                              size=pdf_size)
+                                              size=pdf_size, title=title)
     if make_overlay:
         written["overlay"] = write_overlay_png(os.path.join(out_dir, f"{stem}_overlay.png"),
                                                overlay_source if overlay_source is not None else image_bgr,

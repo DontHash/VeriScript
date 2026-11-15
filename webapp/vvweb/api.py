@@ -388,7 +388,7 @@ def create_app() -> FastAPI:
                 try:
                     payload = process_page(upload_path, run_dir, run_id,
                                            progress=job.progress,
-                                           check=job.check, **options)
+                                           check=job.check, title=title, **options)
                 except PipelineError as exc:
                     raise JobRejected(str(exc)) from exc
             finally:

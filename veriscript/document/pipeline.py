@@ -128,7 +128,8 @@ def run_document_pipeline(img_bgr: np.ndarray, *, backend: Optional[str] = None,
                           make_txt: bool = True, make_json: bool = True,
                           make_md: bool = True,
                           conf_threshold: float = 60.0,
-                          pdf_size: str = "standard") -> DocumentResult:
+                          pdf_size: str = "standard",
+                          title: Optional[str] = None) -> DocumentResult:
     """`primary_stream` ("raw"|"restored", None = RECOMMENDED_STREAM) exists
     for evaluation A/Bs; production callers leave it unset.
 
@@ -327,7 +328,7 @@ def run_document_pipeline(img_bgr: np.ndarray, *, backend: Optional[str] = None,
             out_dir, stem, p.display, result, dpi=dpi,
             make_pdf=make_pdf, make_overlay=make_overlay, make_txt=make_txt,
             make_json=make_json, make_md=make_md, overlay_source=p.display,
-            pdf_size=pdf_size)
+            pdf_size=pdf_size, title=title)
 
     meta = {
         "seconds": round(time.time() - t0, 2),
