@@ -130,7 +130,7 @@ def run_document_pipeline(img_bgr: np.ndarray, *, backend: Optional[str] = None,
                           conf_threshold: float = 60.0,
                           pdf_size: str = "standard",
                           title: Optional[str] = None,
-                          flatten: bool = False) -> DocumentResult:
+                          flatten=False) -> DocumentResult:
     """`primary_stream` ("raw"|"restored", None = RECOMMENDED_STREAM) exists
     for evaluation A/Bs; production callers leave it unset.
 
@@ -159,14 +159,31 @@ def run_document_pipeline(img_bgr: np.ndarray, *, backend: Optional[str] = None,
     prefers over the engine reading becomes `context_conflict` plus a
     suggestion. Flag-only, deterministic, opt-in until its frozen gate.
 
-    `flatten` straightens a curved or folded phone photo with UVDoc before
-    anything else (veriscript/document/dewarp.py). It needs the local model
-    and does nothing without it. It is opt-in: it passed its gate on the
-    DocUNet photos (English), but it can blur pages that were already flat.
+    `flatten` straightens a curved or folded phone photo with UVDoc
+    (veriscript/document/dewarp.py); it needs the local model and does
+    nothing without it. True or "pick": read the photo and the flattened page
+    and keep the reading the engine is more confident in (about twice the
+    OCR time). "always": read only the flattened page. Opt-in; measured on
+    DocUNet's English photos only (docs/TECH_UPGRADE_PLAN.md F1).
 
     `digit_confusions` appends measured digit-confusion chips (9 vs 1/2/0,
     ...) to the riskiest queued digit tokens. Suggestion-only: no flags, no
     text changes, no queue order changes - it cannot move frozen metrics."""
+    if flatten:
+        from veriscript.document import dewarp
+        if flatten == "always":
+            img_bgr = dewarp.maybe_flatten(img_bgr, True)
+        elif dewarp.available():
+            options = dict(locals())
+            for name in ("img_bgr", "flatten", "dewarp"):
+                options.pop(name, None)
+
+            def read(image, write: bool):
+                kw = options if write else {**options, "out_dir": None, "make_pdf": False,
+                                            "make_overlay": False, "make_txt": False,
+                                            "make_json": False, "make_md": False}
+                return run_document_pipeline(image, **kw)
+            return dewarp.pick_reading(img_bgr, read)
     t0 = time.time()
     backend = pick_backend(backend)
     be = get_backend(backend)
@@ -176,9 +193,6 @@ def run_document_pipeline(img_bgr: np.ndarray, *, backend: Optional[str] = None,
     # OCR boxes and the exported page always agree. (Regression: >MAX_SIDE
     # inputs used to be OCR'd at full resolution while the display was
     # downscaled - boxes fell outside the exported page.)
-    if flatten:
-        from veriscript.document.dewarp import maybe_flatten
-        img_bgr = maybe_flatten(img_bgr, True)
     img_bgr, fit = fit_max_side(img_bgr)
     resized = fit < 1.0
 

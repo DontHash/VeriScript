@@ -165,6 +165,11 @@ def run_document_mode(args) -> int:
                 make_md=not getattr(args, "no_md", False),
                 pdf_size=getattr(args, "pdf_size", "standard"),
                 flatten=getattr(args, "flatten", False))
+            choice = res.meta.get("flatten")
+            if choice:
+                print(f"  {name}: {'flattened page' if choice['used'] else 'photo as taken'} kept "
+                      f"(confidence {choice['confidence_photo']} photo, "
+                      f"{choice['confidence_flattened']} flattened)")
             if not getattr(args, "no_tables", False):
                 from veriscript.document import tables as doc_tables
                 found = doc_tables.extract_tables(res.ocr.tokens)
@@ -497,9 +502,12 @@ def main():
     doc.add_argument("--no-pdf", action="store_true", dest="no_pdf")
     doc.add_argument("--no-tables", action="store_true", dest="no_tables",
                      help="do not write <name>_tables.xlsx/.csv for detected tables")
-    doc.add_argument("--flatten", action="store_true", dest="flatten",
-                     help="straighten curved or folded phone photos first "
-                          "(needs the local UVDoc model, docs/EXTERNAL_ASSETS.md)")
+    doc.add_argument("--flatten", nargs="?", const="pick", default=False,
+                     choices=["pick", "always"], dest="flatten",
+                     help="straighten curved or folded phone photos (needs the local "
+                          "UVDoc model, docs/EXTERNAL_ASSETS.md): 'pick' (default) reads "
+                          "both and keeps the more confident reading, 'always' reads "
+                          "only the flattened page")
     doc.add_argument("--pdf-size", choices=["standard", "small", "archive"],
                      default="standard", dest="pdf_size",
                      help="searchable-PDF page images: standard (JPEG, full "

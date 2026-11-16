@@ -112,6 +112,41 @@ def flatten(image_bgr: np.ndarray, points=None, keep_aspect: bool = False) -> np
     return cv2.cvtColor(flat, cv2.COLOR_RGB2BGR)
 
 
+def reading_confidence(tokens) -> float:
+    """Mean engine confidence of a reading, weighted by characters (0-100)."""
+    chars = [(len(t.text.strip()), t.conf) for t in tokens if t.text.strip()]
+    total = sum(n for n, _ in chars)
+    return sum(n * c for n, c in chars) / total if total else 0.0
+
+
+def pick_reading(image_bgr: np.ndarray, read):
+    """Read the photo and the flattened page; keep the more confident reading.
+
+    `read(image, write)` runs the pipeline (writing its files only when
+    `write`). The photo's reading is written first; when the flattened page
+    wins it is read again with its files, replacing them. On DocUNet this kept
+    most of flattening's gain and almost none of its damage (1 photo with
+    invented words up >2 points, vs 16 when always flattening; F1 notes)."""
+    raw = read(image_bgr, True)
+    flat_img = flatten(image_bgr)
+    flat = read(flat_img, False)
+    c_raw, c_flat = reading_confidence(raw.ocr.tokens), reading_confidence(flat.ocr.tokens)
+    chosen = read(flat_img, True) if c_flat > c_raw else raw
+    chosen.meta["flatten"] = {"used": c_flat > c_raw, "confidence_photo": round(c_raw, 2),
+                              "confidence_flattened": round(c_flat, 2)}
+    # The files were written before the choice: record it in the saved JSON too.
+    path = (getattr(chosen, "outputs", None) or {}).get("json")
+    if path and os.path.isfile(path):
+        import json
+
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+        data.setdefault("meta", {})["flatten"] = chosen.meta["flatten"]
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=1)
+    return chosen
+
+
 def maybe_flatten(image_bgr: np.ndarray, enabled: Optional[bool]) -> np.ndarray:
     """Flatten when asked and the model is present; otherwise unchanged."""
     if not enabled or not available():
