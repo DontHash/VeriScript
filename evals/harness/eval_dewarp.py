@@ -56,6 +56,8 @@ def main() -> None:
 
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--limit", type=int, default=0)
+    ap.add_argument("--keep-aspect", action="store_true", dest="keep_aspect",
+                    help="flattened page in its own proportions instead of the photo's frame")
     args = ap.parse_args()
     if not dewarp.available():
         raise SystemExit("UVDoc weights missing; see docs/EXTERNAL_ASSETS.md")
@@ -85,12 +87,13 @@ def main() -> None:
 
         def flat_read():
             t = time.time()
-            flat = dewarp.flatten(photo)
+            flat = dewarp.flatten(photo, keep_aspect=args.keep_aspect)
             secs = time.time() - t
-            cv2.imwrite(os.path.join(OUT, f"flat_{os.path.basename(path)}"),
+            cv2.imwrite(os.path.join(OUT, f"{tag}_{os.path.basename(path)}"),
                         cv2.resize(flat, None, fx=0.35, fy=0.35, interpolation=cv2.INTER_AREA))
             return {"text": read_text(flat), "seconds": secs}
-        flat = cached(f"flat/{os.path.basename(path)}", flat_read)
+        tag = "flat-aspect" if args.keep_aspect else "flat"
+        flat = cached(f"{tag}/{os.path.basename(path)}", flat_read)
         row = {"photo": os.path.basename(path), "ref_words": len(ref.split()),
                "cer_raw": cer(ref, raw), "cer_flat": cer(ref, flat["text"]),
                "wer_raw": wer(ref, raw), "wer_flat": wer(ref, flat["text"]),
@@ -122,7 +125,7 @@ def main() -> None:
         "invented_ok": summary["invented_flat"] - summary["invented_raw"] <= 0.01,
     }
     summary["gate"]["adopt"] = all(summary["gate"].values())
-    json.dump({"summary": summary, "rows": rows}, open(os.path.join(OUT, "results.json"), "w"), indent=1)
+    json.dump({"summary": summary, "rows": rows}, open(os.path.join(OUT, "results-aspect.json" if args.keep_aspect else "results.json"), "w"), indent=1)
     print(json.dumps(summary, indent=1))
 
 

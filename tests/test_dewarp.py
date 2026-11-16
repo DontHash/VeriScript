@@ -53,7 +53,7 @@ def test_weights_load_only_in_weights_only_mode(monkeypatch, tmp_path):
 
 
 @pytest.mark.skipif(not dewarp.available(), reason="UVDoc weights not downloaded")
-def test_flatten_keeps_size_and_content(monkeypatch):
+def test_flatten_keeps_content(monkeypatch):
     monkeypatch.setattr(dewarp, "_model", None)
     img = np.full((900, 640, 3), 245, np.uint8)
     img[200:260, 100:540] = 20  # a dark text-like bar
@@ -76,3 +76,27 @@ def test_pipeline_flattens_only_when_asked(monkeypatch):
         pipeline.run_document_pipeline(np.full((40, 30, 3), 255, np.uint8), flatten=True,
                                        make_pdf=False, make_overlay=False, make_txt=False,
                                        make_json=False, make_md=False)
+
+
+def _grid(gh=45, gw=31, x0=-1.0, x1=1.0, y0=-1.0, y1=1.0):
+    torch = pytest.importorskip("torch")
+    ys, xs = np.meshgrid(np.linspace(y0, y1, gh), np.linspace(x0, x1, gw), indexing="ij")
+    return torch.from_numpy(np.stack([xs, ys])[None].astype(np.float32))
+
+
+def test_page_size_follows_the_page_not_the_photo():
+    # Grid covering the whole photo: the page is the photo.
+    assert dewarp.page_size(_grid(), (1000, 600)) == (1000, 600)
+    # A narrow receipt in the middle half of a wide photo stays narrow.
+    h, w = dewarp.page_size(_grid(x0=-0.5, x1=0.5), (1000, 1200))
+    assert (h, abs(w - 600) <= 1) == (1000, True)
+
+
+def test_flatten_with_an_identity_grid_keeps_the_page(monkeypatch):
+    pytest.importorskip("torch")
+    img = np.zeros((90, 60, 3), np.uint8)
+    img[30:40, 10:50] = 255
+    for keep_aspect in (False, True):
+        out = dewarp.flatten(img, points=_grid(), keep_aspect=keep_aspect)
+        assert out.shape == img.shape
+        assert np.abs(out.astype(int) - img).max() <= 1

@@ -59,18 +59,52 @@ def _load():
     return net
 
 
-def flatten(image_bgr: np.ndarray) -> np.ndarray:
-    """The page flattened, same size as the input (BGR uint8)."""
+def predict_grid(image_bgr: np.ndarray):
+    """UVDoc's sampling grid for the page, a (1, 2, 45, 31) tensor in [-1, 1]."""
     import cv2
     import torch
-    import torch.nn.functional as F
 
     net = _load()
-    h, w = image_bgr.shape[:2]
     rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
     small = cv2.resize(rgb, INPUT_SIZE, interpolation=cv2.INTER_AREA)
     with torch.no_grad():
         points, _ = net(torch.from_numpy(small.transpose(2, 0, 1)).unsqueeze(0))
+    return points
+
+
+def page_size(points, image_hw) -> tuple[int, int]:
+    """The flattened page's (height, width) in photo pixels.
+
+    The grid's rows run across the page and its columns down it, so their
+    lengths in the photo are the page's real width and height. Using them
+    keeps letter shapes (a narrow receipt stretched to the photo's frame
+    gets letters about twice as wide)."""
+    h, w = image_hw
+    g = points[0].numpy()
+    xy = np.stack([(g[0] + 1) / 2 * (w - 1), (g[1] + 1) / 2 * (h - 1)], -1)  # (gh, gw, 2)
+    width = np.linalg.norm(np.diff(xy, axis=1), axis=-1).sum(1).mean()
+    height = np.linalg.norm(np.diff(xy, axis=0), axis=-1).sum(0).mean()
+    return max(16, int(round(height)) + 1), max(16, int(round(width)) + 1)  # pixels = span + 1
+
+
+def flatten(image_bgr: np.ndarray, points=None, keep_aspect: bool = False) -> np.ndarray:
+    """The page flattened (BGR uint8), in the input's frame (UVDoc's
+    default), or in the page's own proportions with keep_aspect=True.
+
+    On the 128 DocUNet photos keep_aspect fixed the worst case (a narrow
+    receipt: CER 0.45 -> 0.18) but was slightly worse overall (mean CER
+    0.284 vs 0.269), so the frame stays the default."""
+    import cv2
+    import torch
+    import torch.nn.functional as F
+
+    h, w = image_bgr.shape[:2]
+    rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
+    if points is None:
+        points = predict_grid(image_bgr)
+    if keep_aspect:
+        h, w = page_size(points, (h, w))
+    with torch.no_grad():
         grid = F.interpolate(points, size=(h, w), mode="bilinear", align_corners=True)
         out = F.grid_sample(torch.from_numpy(rgb.transpose(2, 0, 1)).unsqueeze(0),
                             grid.permute(0, 2, 3, 1), mode="bilinear", align_corners=True)
