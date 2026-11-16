@@ -48,17 +48,44 @@ Future<Uint8List> _smallJpegOf(String path, String scratch) async {
   }
 }
 
-/// Recognised lines with usable boxes, in page-image pixels.
-List<PdfTextLine> _textLines(ScanPage page) => [
+PdfTextLine? _box(String text, Object? bbox) {
+  if (bbox is! List || bbox.length != 4) return null;
+  return PdfTextLine(
+    text,
+    (bbox[0] as num).toDouble(),
+    (bbox[1] as num).toDouble(),
+    (bbox[2] as num).toDouble(),
+    (bbox[3] as num).toDouble(),
+  );
+}
+
+/// The words of [line] with usable boxes, or null when the line should be
+/// placed as one run: no words, or the text was corrected so the words no
+/// longer spell it (docs/TECH_UPGRADE_PLAN.md D5).
+List<PdfTextLine>? lineWords(Map<String, dynamic> line) {
+  final words = line['words'];
+  if (words is! List || words.isEmpty) return null;
+  final texts = [for (final w in words) (w as Map)['text'] as String? ?? ''];
+  final text = (line['text'] as String? ?? '')
+      .trim()
+      .split(RegExp(r'\s+'))
+      .join(' ');
+  if (texts.join(' ') != text) return null;
+  final out = <PdfTextLine>[];
+  for (final w in words) {
+    final box = _box((w as Map)['text'] as String? ?? '', w['bbox']);
+    if (box == null || box.width <= 0 || box.height <= 0) return null;
+    out.add(box);
+  }
+  return out;
+}
+
+/// Recognised text with usable boxes, in page-image pixels: word by word
+/// when the words still spell the line, else the whole line (E1, D5).
+List<PdfTextLine> textRuns(ScanPage page) => [
   for (final line in page.lines)
-    if (line['bbox'] is List && (line['bbox'] as List).length == 4)
-      PdfTextLine(
-        line['text'] as String? ?? '',
-        (line['bbox'][0] as num).toDouble(),
-        (line['bbox'][1] as num).toDouble(),
-        (line['bbox'][2] as num).toDouble(),
-        (line['bbox'][3] as num).toDouble(),
-      ),
+    ...(lineWords(line) ??
+        [?_box(line['text'] as String? ?? '', line['bbox'])]),
 ];
 
 String xmlEscape(String value) => value
@@ -131,7 +158,8 @@ String exportMime(String path) {
   final ext = path.split('.').last.toLowerCase();
   return switch (ext) {
     'pdf' => 'application/pdf',
-    'docx' => 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'docx' =>
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
     'txt' => 'text/plain',
     'md' => 'text/markdown',
     'json' => 'application/json',
@@ -174,10 +202,9 @@ Future<void> writeBundle(
       if (cancelled?.call() == true) throw StateError('Export cancelled');
       final page = pages[i];
       final source = File(page.path);
-      final head = await source.openRead(0, 8).fold<List<int>>(
-        [],
-        (a, b) => a..addAll(b),
-      );
+      final head = await source
+          .openRead(0, 8)
+          .fold<List<int>>([], (a, b) => a..addAll(b));
       final isJpeg = head.length > 2 && head[0] == 0xFF && head[1] == 0xD8;
       const pngMagic = [0x89, 0x50, 0x4E, 0x47];
       final isPng =
@@ -241,7 +268,8 @@ extension ExportLabels on ExportKind {
     ExportKind.corrections => 'Review data · JSON',
     ExportKind.bundle => 'For VeriScript Desktop · bundle',
   };
-  bool get needsText => this != ExportKind.imagePdf && this != ExportKind.bundle;
+  bool get needsText =>
+      this != ExportKind.imagePdf && this != ExportKind.bundle;
   String get guidance => switch (this) {
     ExportKind.imagePdf =>
       'Keep the original page appearance for sharing or printing. No text recognition needed.',
@@ -293,7 +321,9 @@ Future<File> exportDocument(
   try {
     if (kind == ExportKind.imagePdf || kind == ExportKind.searchablePdf) {
       // Page by page: only one page image is in memory at a time.
-      final font = kind == ExportKind.searchablePdf ? await _exportFont() : null;
+      final font = kind == ExportKind.searchablePdf
+          ? await _exportFont()
+          : null;
       final pdf = await StreamingPdfWriter.open(
         pending.path,
         title: doc.title,
@@ -304,12 +334,14 @@ Future<File> exportDocument(
           if (cancelled?.call() == true) throw StateError('Export cancelled');
           final page = pages[index];
           await pdf.addPage(
-            smallPdf ? await _smallJpegOf(page.path, pending.path) : await _jpegOf(page.path),
+            smallPdf
+                ? await _smallJpegOf(page.path, pending.path)
+                : await _jpegOf(page.path),
             pixelWidth: page.width,
             pixelHeight: page.height,
             // Hidden text does not alter the scan; it makes OCR and
             // corrections selectable and searchable.
-            lines: kind == ExportKind.searchablePdf ? _textLines(page) : const [],
+            lines: kind == ExportKind.searchablePdf ? textRuns(page) : const [],
           );
           progress?.call(index + 1, pages.length);
         }

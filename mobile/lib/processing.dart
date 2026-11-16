@@ -78,6 +78,21 @@ class OfflineProcessor {
               line.boundingBox.height,
             ],
             'backend': 'mlkit',
+            // Words (docs/TECH_UPGRADE_PLAN.md D5): word review and
+            // word-level PDF text placement.
+            'words': [
+              for (final e in line.elements)
+                {
+                  'text': e.text,
+                  'confidence': e.confidence,
+                  'bbox': [
+                    e.boundingBox.left,
+                    e.boundingBox.top,
+                    e.boundingBox.width,
+                    e.boundingBox.height,
+                  ],
+                },
+            ],
           },
         )
         .toList();
@@ -93,7 +108,8 @@ class OfflineProcessor {
       throw ArgumentError('Unknown OCR engine: $engine');
     }
     final reader = engine == 'mlkit' ? recognizer : null;
-    final crossReader = engine == 'rapidocr' && digitMode != 'same' && checkDigits
+    final crossReader =
+        engine == 'rapidocr' && digitMode != 'same' && checkDigits
         ? recognizer
         : null;
     final paths = <String>[];
@@ -337,13 +353,16 @@ List<String> digitGroups(String text) => RegExp(r'[0-9०-९০-৯]+')
     .allMatches(text)
     .map(
       (m) => String.fromCharCodes(
-        m.group(0)!.runes.map(
-          (c) => c >= 0x966 && c <= 0x96f
-              ? c - 0x966 + 48
-              : c >= 0x9e6 && c <= 0x9ef
-              ? c - 0x9e6 + 48
-              : c,
-        ),
+        m
+            .group(0)!
+            .runes
+            .map(
+              (c) => c >= 0x966 && c <= 0x96f
+                  ? c - 0x966 + 48
+                  : c >= 0x9e6 && c <= 0x9ef
+                  ? c - 0x9e6 + 48
+                  : c,
+            ),
       ),
     )
     .toList();
@@ -402,15 +421,18 @@ String reviewLabel(Map<String, dynamic> line) {
       return 'Letter inside a number · check each digit';
   }
   return switch (line['digitCheck']) {
-    'conflict' => crossChecked(line)
-        ? 'Second reader disagrees on digits · tap to compare'
-        : 'Digit disagreement · tap to compare',
-    'unreadable' => crossChecked(line)
-        ? 'Second reader could not read the digits · check the image'
-        : 'Digit re-read unclear · check the image',
-    'matched' => crossChecked(line)
-        ? 'Second reader agrees · confirm against the image'
-        : 'Digit re-read agrees · confirm against the image',
+    'conflict' =>
+      crossChecked(line)
+          ? 'Second reader disagrees on digits · tap to compare'
+          : 'Digit disagreement · tap to compare',
+    'unreadable' =>
+      crossChecked(line)
+          ? 'Second reader could not read the digits · check the image'
+          : 'Digit re-read unclear · check the image',
+    'matched' =>
+      crossChecked(line)
+          ? 'Second reader agrees · confirm against the image'
+          : 'Digit re-read agrees · confirm against the image',
     'notChecked' => 'Digits not re-checked · tap to review',
     _ =>
       needsReview(line)
@@ -426,4 +448,58 @@ bool needsReview(Map<String, dynamic> line) {
       confidence < .8 ||
       line['digitScript'] != null ||
       RegExp(r'[0-9०-९০-৯�]').hasMatch(line['text'] as String);
+}
+
+/// One word to check (docs/TECH_UPGRADE_PLAN.md D5): which line, which word.
+class WordRef {
+  const WordRef(this.line, this.index);
+  final Map<String, dynamic> line;
+  final int index;
+  Map<String, dynamic> get word =>
+      Map<String, dynamic>.from((line['words'] as List)[index] as Map);
+}
+
+/// Words that need a look, numbers first, then lowest confidence: the
+/// phone's version of the desktop's token review queue. Words of a line
+/// the user corrected as a whole are left out (their boxes may be stale).
+List<WordRef> wordsToCheck(List<Map<String, dynamic>> lines) {
+  final out = <WordRef>[];
+  for (final line in lines) {
+    final words = line['words'];
+    if (words is! List || words.isEmpty) continue;
+    final spelled = words.map((w) => (w as Map)['text']).join(' ');
+    final text = (line['text'] as String? ?? '')
+        .trim()
+        .split(RegExp(r'\s+'))
+        .join(' ');
+    if (spelled != text) continue;
+    for (var i = 0; i < words.length; i++) {
+      final w = words[i] as Map;
+      if (w['reviewed'] == true) continue;
+      final t = w['text'] as String? ?? '';
+      final c = (w['confidence'] as num?)?.toDouble();
+      if (RegExp(r'[0-9०-९০-৯]').hasMatch(t) || c == null || c < .8) {
+        out.add(WordRef(line, i));
+      }
+    }
+  }
+  bool digits(WordRef r) =>
+      RegExp(r'[0-9०-९০-৯]').hasMatch(r.word['text'] as String? ?? '');
+  double conf(WordRef r) => (r.word['confidence'] as num?)?.toDouble() ?? 0;
+  out.sort((a, b) {
+    final d = (digits(b) ? 1 : 0) - (digits(a) ? 1 : 0);
+    return d != 0 ? d : conf(a).compareTo(conf(b));
+  });
+  return out;
+}
+
+/// Replaces one word and rebuilds its line's text from the words.
+void correctWord(WordRef ref, String text) {
+  final words = (ref.line['words'] as List)
+      .map((w) => Map<String, dynamic>.from(w as Map))
+      .toList();
+  words[ref.index]['text'] = text.trim();
+  words[ref.index]['reviewed'] = true;
+  ref.line['words'] = words;
+  ref.line['text'] = words.map((w) => w['text']).join(' ');
 }

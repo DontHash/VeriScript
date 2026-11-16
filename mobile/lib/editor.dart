@@ -31,6 +31,65 @@ class _PageEditorState extends State<PageEditor> {
   bool busy = false;
   int revision = 0;
   bool showOriginal = false;
+
+  /// Word-by-word review (docs/TECH_UPGRADE_PLAN.md D5).
+  bool wordView = false;
+
+  Future<void> editWord(WordRef ref) async {
+    final word = ref.word;
+    var draft = word['text'] as String? ?? '';
+    final result = await showDialog<String>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Check this word'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              WordCrop(page: page, bbox: word['bbox'] as List?, height: 96),
+              const SizedBox(height: 8),
+              Text('In the line: ${ref.line['text']}'),
+              const SizedBox(height: 16),
+              TextFormField(
+                initialValue: draft,
+                autofocus: true,
+                onChanged: (value) => draft = value,
+                decoration: const InputDecoration(labelText: 'Word'),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, draft),
+            child: const Text('Confirm'),
+          ),
+        ],
+      ),
+    );
+    if (result == null || result.trim().isEmpty || !mounted) return;
+    final oldText = ref.line['text'], oldWords = ref.line['words'];
+    correctWord(ref, result);
+    try {
+      await widget.store.save(widget.doc);
+    } catch (e) {
+      ref.line['text'] = oldText;
+      ref.line['words'] = oldWords;
+      message(
+        friendlyError(
+          e,
+          'Could not save this correction. The previous text is kept.',
+        ),
+      );
+    }
+    if (mounted) setState(() {});
+  }
+
   String status = '';
   OfflineProcessor? processor;
 
@@ -437,27 +496,45 @@ class _PageEditorState extends State<PageEditor> {
                                     'No text detected. Try a sharper photo.',
                                   ),
                                 )
-                              : ListView.builder(
-                                  padding: const EdgeInsets.all(16),
-                                  itemCount: page.lines.length,
-                                  itemBuilder: (_, index) {
-                                    final line = page.lines[index];
-                                    return Card(
-                                      child: ListTile(
-                                        title: Text(line['text']),
-                                        subtitle: Text(reviewLabel(line)),
-                                        leading: Icon(
-                                          needsReview(line)
-                                              ? Icons.help_outline
-                                              : Icons.check_circle_outline,
+                              : Column(
+                                  children: [
+                                    if (page.lines.any(
+                                      (l) =>
+                                          (l['words'] as List?)?.isNotEmpty ==
+                                          true,
+                                    ))
+                                      Padding(
+                                        padding: const EdgeInsets.fromLTRB(
+                                          16,
+                                          8,
+                                          16,
+                                          0,
                                         ),
-                                        trailing: const Icon(
-                                          Icons.edit_outlined,
+                                        child: SegmentedButton<bool>(
+                                          segments: [
+                                            const ButtonSegment(
+                                              value: false,
+                                              label: Text('Lines'),
+                                            ),
+                                            ButtonSegment(
+                                              value: true,
+                                              label: Text(
+                                                'Words to check (${wordsToCheck(page.lines).length})',
+                                              ),
+                                            ),
+                                          ],
+                                          selected: {wordView},
+                                          onSelectionChanged: (v) => setState(
+                                            () => wordView = v.first,
+                                          ),
                                         ),
-                                        onTap: () => editLine(line),
                                       ),
-                                    );
-                                  },
+                                    Expanded(
+                                      child: wordView
+                                          ? _wordList()
+                                          : _lineList(),
+                                    ),
+                                  ],
                                 ),
                         ],
                       ),
@@ -490,6 +567,68 @@ class _PageEditorState extends State<PageEditor> {
         ),
       ),
     ),
+  );
+
+  Widget _wordList() {
+    final words = wordsToCheck(page.lines);
+    if (words.isEmpty) {
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.all(24),
+          child: Text(
+            'No words left to check on this page.',
+            textAlign: TextAlign.center,
+          ),
+        ),
+      );
+    }
+    return ListView.builder(
+      padding: const EdgeInsets.all(16),
+      itemCount: words.length,
+      itemBuilder: (_, index) {
+        final ref = words[index];
+        final word = ref.word;
+        return Card(
+          child: ListTile(
+            leading: SizedBox(
+              width: 96,
+              child: WordCrop(
+                page: page,
+                bbox: word['bbox'] as List?,
+                height: 40,
+              ),
+            ),
+            title: Text(word['text'] as String? ?? ''),
+            subtitle: Text(
+              RegExp(r'[0-9०-९০-৯]').hasMatch(word['text'] as String? ?? '')
+                  ? 'Number · compare with the picture'
+                  : 'Low confidence · compare with the picture',
+            ),
+            trailing: const Icon(Icons.edit_outlined),
+            onTap: () => editWord(ref),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _lineList() => ListView.builder(
+    padding: const EdgeInsets.all(16),
+    itemCount: page.lines.length,
+    itemBuilder: (_, index) {
+      final line = page.lines[index];
+      return Card(
+        child: ListTile(
+          title: Text(line['text']),
+          subtitle: Text(reviewLabel(line)),
+          leading: Icon(
+            needsReview(line) ? Icons.help_outline : Icons.check_circle_outline,
+          ),
+          trailing: const Icon(Icons.edit_outlined),
+          onTap: () => editLine(line),
+        ),
+      );
+    },
   );
 }
 
@@ -726,4 +865,66 @@ class CornerPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(CornerPainter oldDelegate) => true;
+}
+
+/// The part of the page picture inside [bbox] (page-image pixels), scaled
+/// to [height]: the word as printed, beside what was read (D5).
+class WordCrop extends StatelessWidget {
+  const WordCrop({
+    super.key,
+    required this.page,
+    required this.bbox,
+    this.height = 48,
+  });
+  final ScanPage page;
+  final List? bbox;
+  final double height;
+
+  @override
+  Widget build(BuildContext context) {
+    final b = bbox;
+    if (b == null || b.length != 4 || page.width <= 1 || page.height <= 1) {
+      return SizedBox(height: height);
+    }
+    final pad = (b[3] as num).toDouble() * .25;
+    final left = ((b[0] as num).toDouble() - pad).clamp(0.0, page.width - 1.0);
+    final top = ((b[1] as num).toDouble() - pad).clamp(0.0, page.height - 1.0);
+    final w = ((b[2] as num).toDouble() + 2 * pad).clamp(
+      1.0,
+      page.width - left,
+    );
+    final h = ((b[3] as num).toDouble() + 2 * pad).clamp(
+      1.0,
+      page.height - top,
+    );
+    final pw = page.width.toDouble(), ph = page.height.toDouble();
+    return Semantics(
+      label: 'Picture of the word on the page',
+      image: true,
+      child: SizedBox(
+        height: height,
+        child: FittedBox(
+          fit: BoxFit.contain,
+          alignment: Alignment.centerLeft,
+          child: ClipRect(
+            child: Align(
+              alignment: Alignment(
+                pw - w <= 0 ? 0 : left / (pw - w) * 2 - 1,
+                ph - h <= 0 ? 0 : top / (ph - h) * 2 - 1,
+              ),
+              widthFactor: w / pw,
+              heightFactor: h / ph,
+              child: Image.file(
+                File(page.path),
+                width: pw,
+                height: ph,
+                fit: BoxFit.fill,
+                cacheWidth: page.width > 2400 ? 2400 : null,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
