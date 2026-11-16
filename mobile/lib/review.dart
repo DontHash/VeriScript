@@ -411,11 +411,12 @@ class _ReviewScreenState extends State<ReviewScreen> {
       ),
     );
     if (kind == null || !mounted) return;
+    File? file;
     await work('Preparing export', () async {
       if (kind.needsText) await recognize();
       checkCancelled();
       setState(() => status = 'Writing ${kind.extension.toUpperCase()}');
-      final file = await exportDocument(
+      file = await exportDocument(
         widget.store,
         doc,
         kind,
@@ -423,39 +424,141 @@ class _ReviewScreenState extends State<ReviewScreen> {
         cancelled: () => cancelled,
         smallPdf: smallPdf,
       );
-      if (mounted) await share(file.path);
     });
+    final done = file;
+    if (done != null && mounted) await deliver(done.path);
+  }
+
+  /// E5: an export goes to another app (Share) or to a place the user picks
+  /// (Save to…, through Android's own file picker). The file stays in
+  /// Saved exports either way.
+  Future<void> deliver(String path) async {
+    final choice = await showModalBottomSheet<String>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              title: const Text('Export ready', style: TextStyle(fontSize: 24)),
+              subtitle: Text(path.split('/').last),
+            ),
+            ListTile(
+              leading: const Icon(Icons.ios_share),
+              title: const Text('Share'),
+              subtitle: const Text('Send to another app, such as email or messages.'),
+              onTap: () => Navigator.pop(context, 'share'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.save_alt),
+              title: const Text('Save to…'),
+              subtitle: const Text('Choose a folder on this phone, a memory card or a USB drive.'),
+              onTap: () => Navigator.pop(context, 'save'),
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+    if (!mounted || choice == null) return;
+    if (choice == 'share') {
+      await share(path);
+    } else {
+      try {
+        if (await saveExportAs(path)) message('Saved ${path.split('/').last}.');
+      } catch (e) {
+        message(friendlyError(e, 'The file could not be saved there.'));
+      }
+    }
   }
 
   Future<void> rename() async {
-    final controller = TextEditingController(text: doc.title);
     final value = await showDialog<String>(
       context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Document name'),
-        content: TextField(
-          controller: controller,
-          maxLength: 80,
-          autofocus: true,
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, controller.text),
-            child: const Text('Save'),
-          ),
-        ],
+      builder: (_) => NameDialog(
+        title: 'Document name',
+        initial: doc.title,
+        action: 'Save',
       ),
     );
-    controller.dispose();
     if (value != null && value.trim().isNotEmpty) {
       doc.title = value.trim();
       await widget.store.save(doc);
       setState(() {});
     }
+  }
+
+  /// E5 split: the selected pages become a new document.
+  Future<void> moveSelected() async {
+    final pages = doc.selected.toList();
+    if (pages.isEmpty || pages.length == doc.pages.length) {
+      message('Select the pages to move. At least one page must stay.');
+      return;
+    }
+    final title = await showDialog<String>(
+      context: context,
+      builder: (_) => NameDialog(
+        title: 'Move ${countLabel(pages.length, 'page')} to a new document',
+        initial: '${doc.title} (2)',
+        action: 'Move',
+        label: 'New document name',
+      ),
+    );
+    if (title == null || title.trim().isEmpty || !mounted) return;
+    await work('Moving pages', () async {
+      final created = await widget.store.movePagesToNew(
+        doc,
+        pages,
+        title.trim(),
+        progress: (done, total) => setState(() => fraction = done / total),
+      );
+      message('Moved ${countLabel(pages.length, 'page')} to “${created.title}”.');
+    });
+  }
+
+  /// E5 combine: copies of another document's pages are added at the end.
+  Future<void> addFromDocument() async {
+    final others = (await widget.store.list()).where((d) => d.id != doc.id).toList();
+    if (!mounted) return;
+    if (others.isEmpty) {
+      message('There is no other document to add pages from.');
+      return;
+    }
+    final source = await showModalBottomSheet<ScanDocument>(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            const ListTile(
+              title: Text('Add pages from', style: TextStyle(fontSize: 24)),
+              subtitle: Text(
+                'Its pages are copied to the end of this document. The other document stays as it is.',
+              ),
+            ),
+            ...others.map(
+              (other) => ListTile(
+                title: Text(other.title),
+                subtitle: Text(countLabel(other.pages.length, 'page')),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => Navigator.pop(context, other),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (source == null || !mounted) return;
+    await work('Adding pages', () async {
+      await widget.store.copyPages(
+        source,
+        source.pages,
+        doc,
+        progress: (done, total) => setState(() => fraction = done / total),
+      );
+      message('Added ${countLabel(source.pages.length, 'page')} from “${source.title}”.');
+    });
   }
 
   Future<void> showExports() async {
@@ -473,11 +576,11 @@ class _ReviewScreenState extends State<ReviewScreen> {
             ...doc.exports.reversed.map(
               (path) => ListTile(
                 title: Text(path.split('/').last),
-                trailing: const Icon(Icons.ios_share),
+                trailing: const Icon(Icons.chevron_right),
                 onTap: () async {
                   Navigator.pop(context);
                   if (await File(path).exists()) {
-                    await share(path);
+                    await deliver(path);
                   } else {
                     message(
                       'This export is missing. Export again from the saved pages.',
@@ -739,6 +842,10 @@ class _ReviewScreenState extends State<ReviewScreen> {
                   work('Recognizing text', recognize);
                 } else if (value == 'exports') {
                   showExports();
+                } else if (value == 'move') {
+                  moveSelected();
+                } else if (value == 'add') {
+                  addFromDocument();
                 } else if (value == 'select') {
                   for (final p in doc.pages) {
                     p.included = true;
@@ -753,6 +860,14 @@ class _ReviewScreenState extends State<ReviewScreen> {
                 ),
                 PopupMenuItem(value: 'select', child: Text('Select all pages')),
                 PopupMenuItem(value: 'exports', child: Text('Saved exports')),
+                PopupMenuItem(
+                  value: 'move',
+                  child: Text('Move selected pages to a new document'),
+                ),
+                PopupMenuItem(
+                  value: 'add',
+                  child: Text('Add pages from another document'),
+                ),
               ],
             ),
           ],
@@ -957,5 +1072,55 @@ class _ReviewScreenState extends State<ReviewScreen> {
               ),
       ),
     ),
+  );
+}
+
+/// A one-field name dialog that owns its text controller, so the controller
+/// is disposed only after the dialog (and its closing animation) is gone.
+class NameDialog extends StatefulWidget {
+  const NameDialog({
+    super.key,
+    required this.title,
+    required this.initial,
+    required this.action,
+    this.label,
+  });
+  final String title, initial, action;
+  final String? label;
+
+  @override
+  State<NameDialog> createState() => _NameDialogState();
+}
+
+class _NameDialogState extends State<NameDialog> {
+  late final controller = TextEditingController(text: widget.initial);
+
+  @override
+  void dispose() {
+    controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: Text(widget.title),
+    content: TextField(
+      controller: controller,
+      maxLength: 80,
+      autofocus: true,
+      decoration: widget.label == null
+          ? null
+          : InputDecoration(labelText: widget.label),
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.pop(context),
+        child: const Text('Cancel'),
+      ),
+      FilledButton(
+        onPressed: () => Navigator.pop(context, controller.text),
+        child: Text(widget.action),
+      ),
+    ],
   );
 }

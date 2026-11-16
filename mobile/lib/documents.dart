@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' show max;
 
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
@@ -309,6 +310,119 @@ class DocumentStore {
     }
     docs.sort((a, b) => b.id.compareTo(a.id));
     return docs;
+  }
+
+  /// Pages per document (imports, video and combining all keep to it).
+  static const maxPages = 150;
+
+  /// Last id handed to a copied page: ids stay unique within a burst.
+  static int _lastId = 0;
+
+  /// Files in [dir] that belong to [page]: the ones its record points at and
+  /// every working copy named after its id (original_, source_, page_,
+  /// aligned_, enhanced_, `edit_<id>_...`).
+  Future<Set<String>> _pageFiles(String dir, ScanPage page) async {
+    final files = <String>{};
+    for (final p in [page.path, page.source, page.previousVersion?['path']]) {
+      if (p is String && p.startsWith('$dir/') && await File(p).exists()) {
+        files.add(p);
+      }
+    }
+    final named = RegExp('_${RegExp.escape(page.id)}[._]');
+    await for (final e in Directory(dir).list(followLinks: false)) {
+      // Same form as stored paths ('$dir/name'), whatever separator the
+      // platform lists with, so a file is never collected twice.
+      final name = _baseName(e.path);
+      if (e is File && named.hasMatch(name)) files.add('$dir/$name');
+    }
+    return files;
+  }
+
+  /// Copy [page] and its files from folder [from] into [to] under a new id,
+  /// so the same page can be copied more than once without clashing.
+  Future<ScanPage> _copyPage(ScanPage page, String from, String to) async {
+    final id = '${_lastId = max(_lastId + 1, DateTime.now().microsecondsSinceEpoch)}';
+    final named = RegExp('_${RegExp.escape(page.id)}(?=[._])');
+    final moved = <String, String>{};
+    for (final f in await _pageFiles(from, page)) {
+      final relative = f.substring(from.length + 1);
+      final target = '$to/${relative.replaceAll(named, '_$id')}';
+      if (await File(target).exists()) {
+        throw StateError('A page file already exists in the other document.');
+      }
+      await File(target).parent.create(recursive: true);
+      await File(f).copy(target);
+      moved[f] = target;
+    }
+    final json = mapPaths(
+      {
+        'pages': [jsonDecode(jsonEncode(page.toJson()))],
+      },
+      (p) => moved[p] ?? p,
+    );
+    final copy = Map<String, dynamic>.from((json['pages'] as List).single);
+    copy['id'] = id;
+    return ScanPage.fromJson(copy);
+  }
+
+  /// Append copies of [pages] (from [source]) to [target]. The source is left
+  /// as it is; the user deletes it if they no longer want it.
+  Future<void> copyPages(
+    ScanDocument source,
+    List<ScanPage> pages,
+    ScanDocument target, {
+    void Function(int, int)? progress,
+  }) async {
+    if (identical(source, target) || source.id == target.id) {
+      throw StateError('Choose a different document.');
+    }
+    if (target.pages.length + pages.length > maxPages) {
+      throw StateError(
+        'That would make ${target.pages.length + pages.length} pages; a document holds up to $maxPages.',
+      );
+    }
+    final from = directory(source), to = directory(target);
+    for (var i = 0; i < pages.length; i++) {
+      target.pages.add(await _copyPage(pages[i], from, to));
+      // Save after each page: an interrupted copy keeps what was copied.
+      await save(target);
+      progress?.call(i + 1, pages.length);
+    }
+  }
+
+  /// Move [pages] of [doc] into a new document called [title]. The new
+  /// document is saved before anything is removed from [doc], so a crash in
+  /// between leaves the pages in both rather than in neither.
+  Future<ScanDocument> movePagesToNew(
+    ScanDocument doc,
+    List<ScanPage> pages,
+    String title, {
+    void Function(int, int)? progress,
+  }) async {
+    if (pages.isEmpty || pages.length >= doc.pages.length) {
+      throw StateError('Select some pages, but not all of them, to move.');
+    }
+    final created = await create(title);
+    created.folder = doc.folder;
+    await copyPages(doc, pages, created, progress: progress);
+    final dir = directory(doc);
+    final leaving = pages.map((p) => p.id).toSet();
+    final files = <String>{};
+    for (final p in pages) {
+      files.addAll(await _pageFiles(dir, p));
+    }
+    doc.pages.removeWhere((p) => leaving.contains(p.id));
+    await save(doc);
+    // Never delete a file a remaining page still uses.
+    for (final p in doc.pages) {
+      files.removeAll(await _pageFiles(dir, p));
+    }
+    for (final f in files) {
+      try {
+        await File(f).delete();
+      } catch (_) {}
+    }
+    return created;
   }
 
   Future<ScanPage> importImage(

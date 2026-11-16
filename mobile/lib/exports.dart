@@ -124,6 +124,33 @@ enum ExportKind {
   bundle,
 }
 
+const _save = MethodChannel('veriscript/save');
+
+/// The media type a "Save to…" picker should be told for an export.
+String exportMime(String path) {
+  final ext = path.split('.').last.toLowerCase();
+  return switch (ext) {
+    'pdf' => 'application/pdf',
+    'docx' => 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'txt' => 'text/plain',
+    'md' => 'text/markdown',
+    'json' => 'application/json',
+    _ => 'application/octet-stream', // .veriscript bundles and anything else
+  };
+}
+
+/// "Save to…" through Android's own picker (docs/TECH_UPGRADE_PLAN.md E5).
+/// True when saved, false when the user closed the picker.
+Future<bool> saveExportAs(String path) async {
+  final name = path.split(RegExp(r'[\\/]')).last;
+  final saved = await _save.invokeMethod<bool>('saveAs', {
+    'path': path,
+    'name': name,
+    'mime': exportMime(path),
+  });
+  return saved ?? false;
+}
+
 /// Phone -> desktop bundle (docs/TECH_UPGRADE_PLAN.md B4): the original page
 /// pictures plus this phone's readings and corrections, for the full check in
 /// VeriScript Desktop (`veriscript/document/bundle.py` reads it). Written
