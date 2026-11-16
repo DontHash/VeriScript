@@ -1,6 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
-import 'package:archive/archive.dart';
+import 'package:archive/archive_io.dart';
 import 'package:flutter/services.dart';
 import 'package:image/image.dart' as img;
 import 'documents.dart';
@@ -121,6 +121,86 @@ enum ExportKind {
   txt,
   markdown,
   corrections,
+  bundle,
+}
+
+/// Phone -> desktop bundle (docs/TECH_UPGRADE_PLAN.md B4): the original page
+/// pictures plus this phone's readings and corrections, for the full check in
+/// VeriScript Desktop (`veriscript/document/bundle.py` reads it). Written
+/// straight to disk one page at a time: a long document never sits in memory.
+const bundleFormat = 'veriscript-bundle';
+const bundleVersion = 1;
+
+Future<void> writeBundle(
+  String out,
+  ScanDocument doc,
+  List<ScanPage> pages, {
+  void Function(int, int)? progress,
+  bool Function()? cancelled,
+  DateTime? now,
+}) async {
+  final zip = ZipFileEncoder()..create(out, level: 0);
+  final scratch = <File>[];
+  try {
+    final manifestPages = <Map<String, dynamic>>[];
+    for (var i = 0; i < pages.length; i++) {
+      if (cancelled?.call() == true) throw StateError('Export cancelled');
+      final page = pages[i];
+      final source = File(page.path);
+      final head = await source.openRead(0, 8).fold<List<int>>(
+        [],
+        (a, b) => a..addAll(b),
+      );
+      final isJpeg = head.length > 2 && head[0] == 0xFF && head[1] == 0xD8;
+      const pngMagic = [0x89, 0x50, 0x4E, 0x47];
+      final isPng =
+          head.length >= 4 &&
+          List.generate(4, (k) => head[k] == pngMagic[k]).every((x) => x);
+      var file = source;
+      var ext = isPng ? 'png' : 'jpg';
+      if (!isJpeg && !isPng) {
+        // Rare: other formats become a JPEG so the desktop can read them.
+        file = File('$out.page$i.jpg');
+        await file.writeAsBytes(await _jpegOf(page.path), flush: true);
+        scratch.add(file);
+        ext = 'jpg';
+      }
+      final name = 'pages/${(i + 1).toString().padLeft(4, '0')}.$ext';
+      // Page pictures are already compressed: store them as they are.
+      final entry = ArchiveFile.stream(name, InputFileStream(file.path))
+        ..compression = CompressionType.none;
+      zip.addArchiveFile(entry);
+      await entry.close();
+      manifestPages.add({
+        'image': name,
+        'width': page.width,
+        'height': page.height,
+        'recognized': page.recognized,
+        'note': page.note,
+        'lines': page.lines,
+      });
+      progress?.call(i + 1, pages.length);
+    }
+    final manifest = const JsonEncoder.withIndent(' ').convert({
+      'format': bundleFormat,
+      'version': bundleVersion,
+      'title': doc.title,
+      'created': (now ?? DateTime.now()).toUtc().toIso8601String(),
+      'source': 'VeriScript Android',
+      'pages': manifestPages,
+    });
+    zip.addArchiveFile(ArchiveFile.string('manifest.json', manifest));
+    await zip.close();
+  } catch (_) {
+    try {
+      await zip.close();
+    } catch (_) {}
+    rethrow;
+  } finally {
+    for (final f in scratch) {
+      if (await f.exists()) await f.delete();
+    }
+  }
 }
 
 extension ExportLabels on ExportKind {
@@ -132,8 +212,9 @@ extension ExportLabels on ExportKind {
     ExportKind.txt => 'Plain text · TXT',
     ExportKind.markdown => 'Markdown · MD',
     ExportKind.corrections => 'Review data · JSON',
+    ExportKind.bundle => 'For VeriScript Desktop · bundle',
   };
-  bool get needsText => this != ExportKind.imagePdf;
+  bool get needsText => this != ExportKind.imagePdf && this != ExportKind.bundle;
   String get guidance => switch (this) {
     ExportKind.imagePdf =>
       'Keep the original page appearance for sharing or printing. No text recognition needed.',
@@ -149,12 +230,15 @@ extension ExportLabels on ExportKind {
       'Use recognized text with document and page headings in a notes app.',
     ExportKind.corrections =>
       'Save original readings, corrections and number-review evidence for checking later.',
+    ExportKind.bundle =>
+      'Open this document on a computer for the full check: columns, tables and number review. Holds the original pages and your corrections. Move it by cable, USB stick or any app; nothing is uploaded.',
   };
   String get extension => switch (this) {
     ExportKind.docx => 'docx',
     ExportKind.txt => 'txt',
     ExportKind.markdown => 'md',
     ExportKind.corrections => 'json',
+    ExportKind.bundle => 'veriscript',
     _ => 'pdf',
   };
 }
@@ -207,6 +291,14 @@ Future<File> exportDocument(
         await pdf.abandon();
         rethrow;
       }
+    } else if (kind == ExportKind.bundle) {
+      await writeBundle(
+        pending.path,
+        doc,
+        pages,
+        progress: progress,
+        cancelled: cancelled,
+      );
     } else if (kind == ExportKind.digitalPdf) {
       // Android's text layout handles Devanagari shaping and font fallback.
       await native.invokeMethod('textPdf', {

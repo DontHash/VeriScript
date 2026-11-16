@@ -47,6 +47,8 @@ export interface RunMeta {
   pages_processed: number;
   pages_capped: boolean;
   page_cap: number;
+  /** Set when the input was a bundle exported by the phone app. */
+  from_phone?: { pages: number; corrected_lines: number; confirmed_lines: number } | null;
 }
 
 export interface RunFiles {
@@ -61,6 +63,7 @@ export interface RunFiles {
   combined_md?: string;
   tables_xlsx?: string;
   tables_csv?: string;
+  phone_reading?: string;
   corrected_pdf?: string;
   corrected_txt?: string;
   corrected_md?: string;

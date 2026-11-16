@@ -42,6 +42,7 @@ export function StudioPanel(props: { state: StudioState; compact?: boolean }) {
             onClear={s.clearFile}
             disabled={running()}
             multiple={isLocal()}
+            desktop={isLocal()}
           />
         }
       >

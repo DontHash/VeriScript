@@ -21,7 +21,8 @@ from .config import settings
 
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff"}
 PDF_EXTENSIONS = {".pdf"}
-ALLOWED_EXTENSIONS = IMAGE_EXTENSIONS | PDF_EXTENSIONS
+BUNDLE_EXTENSIONS = {".veriscript"}  # phone -> desktop bundles (B4), desktop only
+ALLOWED_EXTENSIONS = IMAGE_EXTENSIONS | PDF_EXTENSIONS | BUNDLE_EXTENSIONS
 
 _PDF_MAGIC = b"%PDF-"
 
@@ -38,7 +39,7 @@ class UploadRejected(HTTPException):
 
 def validate_upload(filename: Optional[str], content_type: Optional[str],
                     head: bytes, path: str) -> str:
-    """Return the detected kind ("image" | "pdf") or raise UploadRejected.
+    """Return the detected kind ("image" | "pdf" | "bundle") or raise UploadRejected.
 
     `head` holds the first bytes of the file (magic checks); `path` is the
     saved upload on disk (image decode + pixel budget).
@@ -53,6 +54,16 @@ def validate_upload(filename: Optional[str], content_type: Optional[str],
     if len(head) > 0 and os.path.getsize(path) > settings.max_upload_bytes:
         raise UploadRejected(
             f"File too large. The limit is {settings.max_upload_mb} MB per page.")
+
+    if ext in BUNDLE_EXTENSIONS:
+        if settings.mode != "local":
+            raise UploadRejected("Phone bundles open in VeriScript Desktop.")
+        from veriscript.document.bundle import BundleError, open_bundle
+        try:
+            open_bundle(path)
+        except BundleError as exc:
+            raise UploadRejected(str(exc)) from None
+        return "bundle"
 
     is_pdf = ext in PDF_EXTENSIONS
     if is_pdf:

@@ -398,7 +398,8 @@ def create_app() -> FastAPI:
                     pass
             store.write_manifest(run_id, {"meta": payload.get("meta", {}),
                                           "files": list(PUBLIC_FILES.keys()),
-                                          "title": title,
+                                          # a phone bundle carries its own title
+                                          "title": payload.get("title") or title,
                                           "created": int(time.time()),
                                           "status_line": payload.get("status_line", "")})
             payload["expires_in"] = settings.run_ttl_seconds

@@ -26,6 +26,11 @@ const DOWNLOADS: { key: keyof RunFiles; name: string; what: string }[] = [
     what: "Tables as a spreadsheet; numbers to check are highlighted and listed",
   },
   { key: "tables_csv", name: "tables.csv", what: "Tables as CSV" },
+  {
+    key: "phone_reading",
+    name: "phone_reading.json",
+    what: "What the phone read, with the corrections made there",
+  },
 ];
 
 /** Everything a finished run produces, organised in tabs. */
@@ -95,6 +100,16 @@ export function StudioResults(props: { state: StudioState }) {
                 {s.openedTitle() ? `${s.openedTitle()}, from your library: saved ` : "Your last result, from "}
                 {new Date(at()).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}.
                 The original image is not kept in the browser, so Compare shows the result only.
+              </p>
+            )}
+          </Show>
+          <Show when={result().meta.from_phone}>
+            {(phone) => (
+              <p class="field__hint" role="status">
+                From the phone app: {phone().pages} {phone().pages === 1 ? "page" : "pages"}, read again
+                here. {phone().corrected_lines + phone().confirmed_lines > 0
+                  ? `${phone().corrected_lines} corrected and ${phone().confirmed_lines} confirmed lines from the phone are in phone_reading.json; they were not copied into this reading.`
+                  : "No lines were corrected on the phone."}
               </p>
             )}
           </Show>

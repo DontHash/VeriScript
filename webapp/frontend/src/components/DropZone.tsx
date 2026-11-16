@@ -1,8 +1,6 @@
 import { createSignal, onCleanup, onMount, Show } from "solid-js";
 import { formatBytes } from "../lib/api";
-import { ACCEPTED_EXTENSIONS } from "../lib/studio-state";
-
-const ACCEPT = ACCEPTED_EXTENSIONS.join(",");
+import { acceptedExtensions } from "../lib/studio-state";
 
 /** Drag & drop, click, or paste a page. Every offered file is passed on;
  *  the studio decides what to do with more than one. */
@@ -13,6 +11,8 @@ export function DropZone(props: {
   disabled?: boolean;
   /** Desktop app: accept several files (read one after another). */
   multiple?: boolean;
+  /** Desktop app: also accept phone bundles (.veriscript). */
+  desktop?: boolean;
 }) {
   const [dragging, setDragging] = createSignal(false);
   let root: HTMLDivElement | undefined;
@@ -56,7 +56,7 @@ export function DropZone(props: {
       <input
         ref={input}
         type="file"
-        accept={ACCEPT}
+        accept={acceptedExtensions(!!props.desktop).join(",")}
         multiple={props.multiple}
         class="visually-hidden"
         tabindex={-1}
@@ -94,7 +94,9 @@ export function DropZone(props: {
           >
             <span class="dropzone__title">Drop a page here, click to browse, or paste</span>
             <span class="dropzone__hint" id="dropzone-hint">
-              PNG, JPG, WebP, TIFF or PDF
+              {props.desktop
+                ? "PNG, JPG, WebP, TIFF, PDF, or a bundle from the phone app"
+                : "PNG, JPG, WebP, TIFF or PDF"}
             </span>
           </div>
         }

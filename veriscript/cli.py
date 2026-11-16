@@ -84,7 +84,7 @@ def out_name(src: str, out_dir: str, suffix: str, ext: str, flat: bool,
 # document mode
 # ---------------------------------------------------------------------------
 
-DOC_EXTS = IMG_EXTS + (".pdf",)
+DOC_EXTS = IMG_EXTS + (".pdf", ".veriscript")
 
 
 def _list_doc_inputs(path: str, recursive: bool) -> List[str]:
@@ -113,6 +113,10 @@ def run_document_mode(args) -> int:
     except RuntimeError as e:
         raise SystemExit(str(e))
 
+    # Phone bundles are whole documents: every page unless --max-pages is given.
+    bundle_limit = args.max_pages or None
+    if args.max_pages is None:
+        args.max_pages = 1
     files = _list_doc_inputs(args.input, args.recursive)
     if args.limit:
         files = files[:args.limit]
@@ -218,7 +222,36 @@ def run_document_mode(args) -> int:
 
     for src in files:
         try:
-            if src.lower().endswith(".pdf"):
+            if src.lower().endswith(".veriscript"):
+                # Phone -> desktop bundle (docs/TECH_UPGRADE_PLAN.md B4).
+                import json as _json
+
+                from veriscript.document import bundle as doc_bundle
+                from veriscript.document.export import write_searchable_pdf_pages
+                bun = doc_bundle.open_bundle(src)
+                stem = os.path.splitext(os.path.basename(src))[0]
+                phone = bun.phone_reading()
+                os.makedirs(args.output, exist_ok=True)
+                with open(os.path.join(args.output, f"{stem}_phone_reading.json"), "w",
+                          encoding="utf-8") as f:
+                    _json.dump(phone, f, ensure_ascii=False, indent=1)
+                print(f"  bundle '{bun.title or stem}': {len(bun.pages)} pages, "
+                      f"{phone['corrected_lines']} lines corrected on the phone")
+                page_results = []
+                for idx, page_img in doc_bundle.iter_images(bun, limit=bundle_limit):
+                    status, res = process(page_img, f"{stem}_p{idx:03d}", f"{src}#p{idx}")
+                    if status == "ok" and res is not None:
+                        page_results.append(res)
+                if page_results and not args.no_pdf:
+                    combined_pdf = os.path.join(args.output, f"{stem}_combined.pdf")
+                    write_searchable_pdf_pages(
+                        combined_pdf, [(r.display_bgr, r.ocr.tokens, 300) for r in page_results],
+                        title=bun.title or stem, size=getattr(args, "pdf_size", "standard"))
+                    with open(os.path.join(args.output, f"{stem}_combined.txt"), "w",
+                              encoding="utf-8") as f:
+                        f.write("\n\n".join(r.ocr.text for r in page_results) + "\n")
+                    print(f"  combined: {os.path.basename(combined_pdf)} ({len(page_results)} pages)")
+            elif src.lower().endswith(".pdf"):
                 pdf_dpi = args.dpi or 200
                 pages = list(doc_data.pdf_to_pages(src, dpi=pdf_dpi))
                 if args.max_pages:
@@ -406,9 +439,10 @@ def main():
                      default="flagged", dest="digit_verifier_scope",
                      help="flagged (default): re-read only tokens the first "
                           "pass suspects; all: every digit token (costlier)")
-    doc.add_argument("--max-pages", type=int, default=1, dest="max_pages",
+    doc.add_argument("--max-pages", type=int, default=None, dest="max_pages",
                      help="max pages per PDF input (default 1; 0 = all pages, "
-                          "also writes <stem>_combined.pdf/.txt)")
+                          "also writes <stem>_combined.pdf/.txt); phone bundles "
+                          "are read whole unless this is given")
     doc.add_argument("--no-reading-order", action="store_true", dest="no_reading_order",
                      help="skip XY-cut reading-order repair for column layouts")
     doc.add_argument("--rotate", choices=["auto", "off"], default="auto",

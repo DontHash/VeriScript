@@ -64,7 +64,9 @@ void main() {
     }
     await store.save(doc);
 
+    // The bundle (B4) goes first: maxRss is a high-water mark.
     for (final (kind, small) in [
+      (ExportKind.bundle, false),
       (ExportKind.searchablePdf, false),
       (ExportKind.imagePdf, false),
       (ExportKind.searchablePdf, true),
@@ -81,6 +83,7 @@ void main() {
           'rss_before=${current ~/ 1048576}MB peak_before=${before ~/ 1048576}MB '
           'peak_after=${after ~/ 1048576}MB');
       if (!small) expect(await file.length(), greaterThan(jpeg.length * 150));
+      await file.delete(); // keep the emulator's storage free for the next export
     }
     await root.delete(recursive: true);
   }, timeout: const Timeout(Duration(minutes: 30)));

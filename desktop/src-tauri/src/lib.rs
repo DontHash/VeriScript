@@ -139,7 +139,9 @@ fn spawn_server(port: u16, token: &str, runs_dir: &Path, log: &Path) -> std::io:
         .env("VERISCRIPT_WEB_DAILY_RUNS", "0")
         .env("VERISCRIPT_WEB_DAILY_PAGES", "0")
         .env("VERISCRIPT_WEB_DAILY_PAGES_PER_CLIENT", "0")
-        .env("VERISCRIPT_WEB_MAX_UPLOAD_MB", "200")
+        // Uploads stream to disk, so size is not a memory risk here. A
+        // 150-page phone bundle (B4) is about 270 MB.
+        .env("VERISCRIPT_WEB_MAX_UPLOAD_MB", "2048")
         // Long PDFs run as background jobs with progress and Cancel, so
         // neither a page cap nor a run timeout applies on the desktop.
         .env("VERISCRIPT_WEB_PAGE_CAP", "0")

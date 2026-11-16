@@ -43,6 +43,7 @@ PUBLIC_FILES = {
     "tables.xlsx": {"media": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     "download": "tables.xlsx"},
     "tables.csv": {"media": "text/csv; charset=utf-8", "download": "tables.csv"},
+    "phone_reading.json": {"media": "application/json", "download": "phone_reading.json"},
     "corrected.pdf": {"media": "application/pdf", "download": "corrected.pdf"},
     "corrected.txt": {"media": "text/plain; charset=utf-8", "download": "corrected.txt"},
     "corrected.md": {"media": "text/markdown; charset=utf-8", "download": "corrected.md"},

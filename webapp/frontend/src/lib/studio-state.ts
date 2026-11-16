@@ -36,12 +36,22 @@ export interface BatchItem {
 
 /** Accepted inputs; mirrors the server's validate_upload. */
 export const ACCEPTED_EXTENSIONS = [".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff", ".pdf"];
+/** Document bundle exported by the phone app (desktop only). */
+export const BUNDLE_EXTENSION = ".veriscript";
+
+export const acceptedExtensions = (desktop: boolean) =>
+  desktop ? [...ACCEPTED_EXTENSIONS, BUNDLE_EXTENSION] : ACCEPTED_EXTENSIONS;
 
 /** Why a file cannot be read, or null when it can. */
-export function fileProblem(file: File, maxMb: number): string | null {
+export function fileProblem(file: File, maxMb: number, desktop = false): string | null {
   const name = file.name.toLowerCase();
-  if (!ACCEPTED_EXTENSIONS.some((ext) => name.endsWith(ext))) {
-    return `${file.name} is not a supported file. Use a PNG, JPG, WebP, TIFF or PDF.`;
+  if (name.endsWith(BUNDLE_EXTENSION) && !desktop) {
+    return `${file.name} is a phone bundle. Open it in VeriScript Desktop.`;
+  }
+  if (!acceptedExtensions(desktop).some((ext) => name.endsWith(ext))) {
+    return desktop
+      ? `${file.name} is not a supported file. Use a PNG, JPG, WebP, TIFF, PDF or a phone bundle (.veriscript).`
+      : `${file.name} is not a supported file. Use a PNG, JPG, WebP, TIFF or PDF.`;
   }
   if (file.size === 0) return `${file.name} is empty.`;
   if (file.size > maxMb * 1024 * 1024) {
@@ -197,7 +207,7 @@ export function createStudioState() {
     // The desktop app reads several files in a row; the shared demo keeps to
     // one at a time (its daily page quota).
     if (files.length > 1 && health()?.mode === "local") {
-      const usable = files.filter((f) => !fileProblem(f, maxUploadMb()));
+      const usable = files.filter((f) => !fileProblem(f, maxUploadMb(), true));
       const skipped = files.length - usable.length;
       if (usable.length > 1) {
         chooseFile(usable[0]);
@@ -213,7 +223,7 @@ export function createStudioState() {
       }
     }
     setBatch([]);
-    const problem = fileProblem(first, maxUploadMb());
+    const problem = fileProblem(first, maxUploadMb(), health()?.mode === "local");
     if (problem) {
       setNotice(null);
       setError(problem);

@@ -59,6 +59,11 @@ def count_pdf_pages(path: str) -> int:
 def pages_to_process(path: str, kind: Optional[str], all_pages: bool,
                      page_cap: Optional[int] = None) -> int:
     """How many pages a run will read (quota units and the progress total)."""
+    if kind == "bundle":
+        from veriscript.document.bundle import open_bundle
+        n = len(open_bundle(path).pages)
+        cap = PAGE_CAP if page_cap is None else page_cap
+        return min(n, cap) if cap else n  # a bundle is always the whole document
     if not _is_pdf(path, kind) or not all_pages:
         return 1
     cap = PAGE_CAP if page_cap is None else page_cap
@@ -79,6 +84,14 @@ def _iter_pages(path: str, kind: Optional[str], all_pages: bool,
     first page; ``all_pages`` expands to every page up to the cap (0 = no
     cap). Pages are rendered lazily so a long PDF never sits in memory.
     """
+    if kind == "bundle":
+        from veriscript.document import bundle as doc_bundle
+        cap = PAGE_CAP if page_cap is None else page_cap
+        try:
+            yield from doc_bundle.iter_images(doc_bundle.open_bundle(path), limit=cap or None)
+        except doc_bundle.BundleError as exc:
+            raise PipelineError(str(exc)) from None
+        return
     if _is_pdf(path, kind):
         from veriscript.core import data as doc_data
         cap = PAGE_CAP if page_cap is None else page_cap
@@ -140,6 +153,7 @@ KEY_MAP = {
     "combined.md": "combined_md",
     "tables.xlsx": "tables_xlsx",
     "tables.csv": "tables_csv",
+    "phone_reading.json": "phone_reading",
 }
 
 
@@ -237,13 +251,26 @@ def process_page(upload_path: str, run_dir: str, run_id: str, *,
     from veriscript.document.pipeline import run_document_pipeline
 
     started = time.time()
-    kind = "pdf" if _is_pdf(upload_path, kind) else "image"
+    phone = None
+    if kind == "bundle":
+        # Phone -> desktop (B4): the phone's readings and corrections are kept
+        # next to the desktop's own reading; the desktop never copies text from them.
+        from veriscript.document.bundle import BundleError, open_bundle
+        try:
+            phone = open_bundle(upload_path).phone_reading()
+        except BundleError as exc:
+            raise PipelineError(str(exc)) from None
+        title = phone["title"] or title
+        with open(os.path.join(run_dir, "phone_reading.json"), "w", encoding="utf-8") as f:
+            json.dump(phone, f, ensure_ascii=False, indent=1)
+    else:
+        kind = "pdf" if _is_pdf(upload_path, kind) else "image"
     total = pages_to_process(upload_path, kind, all_pages, page_cap)
     backend = None if ocr in (None, "auto") else ocr
     # CLI parity: image pages get the line reader under the measured `auto`
     # gate (running text + aged paper only); PDF pages keep the engine
     # reading, mirroring the CLI's deliberate auto->off mapping for PDFs.
-    deva_lines = "auto" if kind == "image" else "off"
+    deva_lines = "auto" if kind in ("image", "bundle") else "off"
 
     stem = f"page_{run_id[:8]}"
     cap = PAGE_CAP if page_cap is None else page_cap
@@ -374,6 +401,8 @@ def process_page(upload_path: str, run_dir: str, run_id: str, *,
         "pages_from_pdf_text": len(kept),
         "pdf_size": pdf_size,
         "tables": len(page_tables),
+        "from_phone": ({"pages": len(phone["pages"]), "corrected_lines": phone["corrected_lines"],
+                        "confirmed_lines": phone["confirmed_lines"]} if phone else None),
         "text_layer": [{"page": i + 1, "kept": layer.usable, "reason": layer.reason}
                        for i, layer in sorted(layers.items())][:200],
         "pages_capped": bool(all_pages and cap and n_pages >= cap),
@@ -388,4 +417,5 @@ def process_page(upload_path: str, run_dir: str, run_id: str, *,
         "transcript": summary["transcript"],
         "status_line": getattr(result, "status_line", ""),
         "files": summary["files"],
+        "title": (phone or {}).get("title") or None,
     }
