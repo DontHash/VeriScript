@@ -93,9 +93,11 @@ def main() -> None:
         diff = 0.0
         for p in photos:
             img = cv2.imread(p)
-            ref = dewarp.predict_grid(img).numpy()
             rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
-            x = cv2.resize(rgb, dewarp.INPUT_SIZE, interpolation=cv2.INTER_AREA).transpose(2, 0, 1)[None]
+            x = np.ascontiguousarray(
+                cv2.resize(rgb, dewarp.INPUT_SIZE, interpolation=cv2.INTER_AREA).transpose(2, 0, 1)[None])
+            with torch.no_grad():  # the PyTorch reference, not dewarp's ONNX path
+                ref = net(torch.from_numpy(x))[0].numpy()
             out = sess.run(None, {"image": x})[0]
             diff = max(diff, float(np.abs(out - ref).max()) / 2 * 2000)
         worst[os.path.basename(path)] = round(diff, 3)
