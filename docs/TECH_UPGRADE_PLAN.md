@@ -26,10 +26,10 @@ Open, and why:
 | Item | Blocked on |
 |---|---|
 | C2 scan camera, C5 device acceptance | a physical phone (stand-in measures in C5) |
-| F4 real phone-photo set | consented real pages |
+| F4 real phone-photo set | consented real Nepali pages (no public set exists; DocUNet covers English photos) |
 | B3 "Open with VeriScript" | changes installer file associations; needs the desktop GUI to verify |
-| E4 PDF/A | a validator (veraPDF) to prove conformance |
-| F1 curved-page flattening | choosing and downloading a model (licence check first) |
+| E4 PDF/A | ready to start: veraPDF 1.30.4 installed locally ([EXTERNAL_ASSETS.md](EXTERNAL_ASSETS.md)); three rules to fix |
+| F1 curved-page flattening | ready to start: UVDoc (MIT) downloaded and loading; DocUNet real photos for the gate |
 | D3 engine default per language | a real Nepali photo corpus (F4) to decide on |
 | RapidOCR speed on the phone | measuring on a phone, not the emulator |
 | G release signing | the owner's keystore and code-signing certificate |
