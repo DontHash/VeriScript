@@ -122,3 +122,22 @@ def test_studio_returns_a_protected_copy_and_keeps_nothing(tmp_path, monkeypatch
                        json={"file": "searchable.pdf", "password": "short"}).status_code == 400
     assert client.post(f"/api/runs/{run_id}/protect",
                        json={"file": "transcript.txt", "password": PASSWORD}).status_code == 400
+
+
+# --- The phone's protected exports -----------------------------------------
+
+def test_phone_protected_export_opens_only_with_its_password():
+    """mobile/test/pdf_crypt_test.dart writes this file with the phone's
+    streaming writer (fixed seed); here two independent readers open it."""
+    path = os.path.join(BASE_DIR, "mobile", "test", "fixtures", "protected.pdf")
+    with pytest.raises(pdfium.PdfiumError):
+        pdfium.PdfDocument(path)
+    with pytest.raises(pdfium.PdfiumError):
+        pdfium.PdfDocument(path, password="ward-7")
+    doc = pdfium.PdfDocument(path, password=PASSWORD)
+    assert len(doc) == 2
+    assert doc[0].get_textpage().get_text_range().split() == ["Total", "12,500.75", "नेपाल", "१२३"]
+    reader = pypdf.PdfReader(path)
+    assert reader.decrypt(PASSWORD) == pypdf.PasswordType.USER_PASSWORD
+    assert reader.trailer["/Encrypt"]["/R"] == 6
+    assert reader.metadata.title == "नेपाल receipts"

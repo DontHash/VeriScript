@@ -65,20 +65,22 @@ void main() {
     await store.save(doc);
 
     // The bundle (B4) goes first: maxRss is a high-water mark.
-    for (final (kind, small) in [
-      (ExportKind.bundle, false),
-      (ExportKind.searchablePdf, false),
-      (ExportKind.imagePdf, false),
-      (ExportKind.searchablePdf, true),
+    for (final (kind, small, password) in [
+      (ExportKind.bundle, false, null),
+      (ExportKind.searchablePdf, false, null),
+      (ExportKind.imagePdf, false, null),
+      (ExportKind.searchablePdf, true, null),
+      // E5: the same export encrypted (AES-256, revision 6).
+      (ExportKind.searchablePdf, false, 'ward-7 record'),
     ]) {
       final before = ProcessInfo.maxRss;
       final current = ProcessInfo.currentRss;
       final clock = Stopwatch()..start();
-      final file = await exportDocument(store, doc, kind, smallPdf: small);
+      final file = await exportDocument(store, doc, kind, smallPdf: small, password: password);
       clock.stop();
       final after = ProcessInfo.maxRss;
       // ignore: avoid_print
-      print('EXPORT_MEMORY ${kind.name}${small ? '_small' : ''} pages=150 page_jpeg=${jpeg.length} '
+      print('EXPORT_MEMORY ${kind.name}${small ? '_small' : ''}${password != null ? '_protected' : ''} pages=150 page_jpeg=${jpeg.length} '
           'pdf_bytes=${await file.length()} seconds=${clock.elapsedMilliseconds / 1000} '
           'rss_before=${current ~/ 1048576}MB peak_before=${before ~/ 1048576}MB '
           'peak_after=${after ~/ 1048576}MB');

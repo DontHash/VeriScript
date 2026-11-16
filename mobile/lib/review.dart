@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
@@ -358,6 +359,7 @@ class _ReviewScreenState extends State<ReviewScreen> {
       return;
     }
     var smallPdf = widget.settings.getBool('smallPdf') ?? false;
+    var protect = false;
     final kind = await showModalBottomSheet<ExportKind>(
       context: context,
       isScrollControlled: true,
@@ -392,6 +394,15 @@ class _ReviewScreenState extends State<ReviewScreen> {
                     widget.settings.setBool('smallPdf', v);
                   },
                 ),
+                SwitchListTile(
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 24),
+                  title: const Text('Protect PDFs with a password'),
+                  subtitle: const Text(
+                    'The PDF opens only with the password. Nobody can recover a lost password.',
+                  ),
+                  value: protect,
+                  onChanged: (v) => setSheet(() => protect = v),
+                ),
                 ...ExportKind.values.map(
                   (kind) => ListTile(
                     title: Text(kind.label),
@@ -412,6 +423,12 @@ class _ReviewScreenState extends State<ReviewScreen> {
       ),
     );
     if (kind == null || !mounted) return;
+    String? password;
+    if (protect &&
+        (kind == ExportKind.imagePdf || kind == ExportKind.searchablePdf)) {
+      password = await askPdfPassword(context);
+      if (password == null || !mounted) return;
+    }
     File? file;
     await work('Preparing export', () async {
       if (kind.needsText) await recognize();
@@ -424,6 +441,7 @@ class _ReviewScreenState extends State<ReviewScreen> {
         progress: (done, total) => setState(() => fraction = done / total),
         cancelled: () => cancelled,
         smallPdf: smallPdf,
+        password: password,
       );
     });
     final done = file;
@@ -1132,6 +1150,80 @@ class _NameDialogState extends State<NameDialog> {
         onPressed: () => Navigator.pop(context, controller.text),
         child: Text(widget.action),
       ),
+    ],
+  );
+}
+
+/// E5: asks for a PDF password twice. Returns null when cancelled.
+Future<String?> askPdfPassword(BuildContext context) => showDialog<String>(
+  context: context,
+  builder: (_) => const _PasswordDialog(),
+);
+
+class _PasswordDialog extends StatefulWidget {
+  const _PasswordDialog();
+  @override
+  State<_PasswordDialog> createState() => _PasswordDialogState();
+}
+
+class _PasswordDialogState extends State<_PasswordDialog> {
+  final first = TextEditingController(), second = TextEditingController();
+  String? error;
+
+  @override
+  void dispose() {
+    first.dispose();
+    second.dispose();
+    super.dispose();
+  }
+
+  void submit() {
+    final value = first.text;
+    setState(() {
+      error = value.length < 6
+          ? 'Use at least 6 characters.'
+          : utf8.encode(value).length > 127
+          ? 'That password is too long.'
+          : value != second.text
+          ? 'The two passwords differ.'
+          : null;
+    });
+    if (error == null) Navigator.pop(context, value);
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: const Text('PDF password'),
+    content: Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const Text(
+          'Anyone opening the PDF needs this password. Write it down: '
+          'nobody can recover it, including VeriScript.',
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: first,
+          obscureText: true,
+          autofocus: true,
+          autofillHints: const [AutofillHints.newPassword],
+          decoration: const InputDecoration(labelText: 'Password'),
+        ),
+        TextField(
+          controller: second,
+          obscureText: true,
+          autofillHints: const [AutofillHints.newPassword],
+          decoration: InputDecoration(labelText: 'Password again', errorText: error),
+          onSubmitted: (_) => submit(),
+        ),
+      ],
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.pop(context),
+        child: const Text('Cancel'),
+      ),
+      FilledButton(onPressed: submit, child: const Text('Protect PDF')),
     ],
   );
 }

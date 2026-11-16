@@ -305,6 +305,7 @@ Future<File> exportDocument(
   void Function(int, int)? progress,
   bool Function()? cancelled,
   bool smallPdf = false,
+  String? password,
 }) async {
   final pages = doc.selected.toList();
   if (pages.isEmpty) throw StateError('Select at least one page.');
@@ -328,6 +329,8 @@ Future<File> exportDocument(
         pending.path,
         title: doc.title,
         font: font,
+        // E5: AES-256 (revision 6); the password is not stored anywhere.
+        password: password,
       );
       try {
         for (var index = 0; index < pages.length; index++) {

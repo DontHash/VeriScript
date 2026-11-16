@@ -19,7 +19,10 @@ library;
 
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 import 'dart:typed_data';
+
+import 'pdf_crypt.dart';
 
 // ---------------------------------------------------------------------------
 // TrueType: just enough to map characters, measure them and subset glyf.
@@ -306,16 +309,24 @@ class PdfTextLine {
 }
 
 class StreamingPdfWriter {
-  StreamingPdfWriter._(this._file, this._font, this._title);
+  StreamingPdfWriter._(this._file, this._font, this._title, this._crypt, this._now);
 
-  /// Starts a PDF at [path]. Pass [font] to allow text layers.
+  /// Starts a PDF at [path]. Pass [font] to allow text layers, and
+  /// [password] to encrypt it (AES-256, revision 6: docs/TECH_UPGRADE_PLAN.md
+  /// E5). [random] and [now] make test files reproducible; leave them out.
   static Future<StreamingPdfWriter> open(
     String path, {
     required String title,
     TrueTypeFont? font,
+    String? password,
+    Random? random,
+    DateTime? now,
   }) async {
+    final crypt = password == null || password.isEmpty
+        ? null
+        : PdfEncryption(password, random: random);
     final file = await File(path).open(mode: FileMode.write);
-    final writer = StreamingPdfWriter._(file, font, title);
+    final writer = StreamingPdfWriter._(file, font, title, crypt, now);
     await writer._raw(latin1.encode('%PDF-1.7\n%âãÏÓ\n'));
     return writer;
   }
@@ -323,6 +334,11 @@ class StreamingPdfWriter {
   final RandomAccessFile _file;
   final TrueTypeFont? _font;
   final String _title;
+  final PdfEncryption? _crypt;
+  final DateTime? _now;
+
+  /// Whether the file is password-protected.
+  bool get encrypted => _crypt != null;
   int _position = 0;
   final Map<int, int> _offsets = {};
   int _next = 4; // 1 catalog, 2 pages, 3 font (reserved)
@@ -340,6 +356,13 @@ class StreamingPdfWriter {
   }
 
   Future<void> _object(int id, String body, [List<int>? stream]) async {
+    final crypt = _crypt;
+    if (crypt != null && stream != null) {
+      // Every stream is encrypted; /Length is the encrypted length
+      // (/Length1 of the font program stays the plain length).
+      stream = crypt.encrypt(stream);
+      body = body.replaceFirst(RegExp(r'/Length \d+'), '/Length ${stream.length}');
+    }
     _offsets[id] = _position;
     final head = StringBuffer('$id 0 obj\n');
     if (stream == null) {
@@ -513,17 +536,39 @@ class StreamingPdfWriter {
       '<< /Type /Pages /Count ${_pages.length} '
       '/Kids [${_pages.map((p) => '$p 0 R').join(' ')}] >>',
     );
-    await _object(_catalog, '<< /Type /Catalog /Pages $_pagesRef 0 R >>');
+    // AES-256 revision 6 in a 1.7 file is Adobe extension level 8.
+    final extensions = _crypt == null
+        ? ''
+        : ' /Extensions << /ADBE << /BaseVersion /1.7 /ExtensionLevel 8 >> >>';
+    await _object(
+      _catalog,
+      '<< /Type /Catalog /Pages $_pagesRef 0 R$extensions >>',
+    );
     final infoId = _next++;
-    final now = DateTime.now().toUtc();
+    final now = (_now ?? DateTime.now()).toUtc();
     String two(int v) => v.toString().padLeft(2, '0');
     final date = 'D:${now.year}${two(now.month)}${two(now.day)}'
         '${two(now.hour)}${two(now.minute)}${two(now.second)}Z';
+    final crypt = _crypt;
+    String text(String hex) => crypt == null
+        ? '<$hex>'
+        : crypt.string([
+            for (var i = 0; i < hex.length; i += 2)
+              int.parse(hex.substring(i, i + 2), radix: 16),
+          ]);
+    String ascii(String v) =>
+        crypt == null ? '($v)' : crypt.string(latin1.encode(v));
     await _object(
       infoId,
-      '<< /Title <${_utf16Hex(_title)}> /Creator (VeriScript Offline) '
-      '/Producer (VeriScript) /CreationDate ($date) >>',
+      '<< /Title ${text(_utf16Hex(_title))} /Creator ${ascii('VeriScript Offline')} '
+      '/Producer ${ascii('VeriScript')} /CreationDate ${ascii(date)} >>',
     );
+    var encrypt = '';
+    if (crypt != null) {
+      final encryptId = _next++;
+      await _object(encryptId, crypt.dictionary);
+      encrypt = ' /Encrypt $encryptId 0 R /ID [<${crypt.fileId}> <${crypt.fileId}>]';
+    }
     final xref = _position;
     final size = _next;
     final table = StringBuffer('xref\n0 $size\n0000000000 65535 f \n');
@@ -534,7 +579,7 @@ class StreamingPdfWriter {
           : '${offset.toString().padLeft(10, '0')} 00000 n \n');
     }
     table.write(
-      'trailer\n<< /Size $size /Root $_catalog 0 R /Info $infoId 0 R >>\n'
+      'trailer\n<< /Size $size /Root $_catalog 0 R /Info $infoId 0 R$encrypt >>\n'
       'startxref\n$xref\n%%EOF\n',
     );
     await _raw(latin1.encode(table.toString()));
