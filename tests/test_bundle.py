@@ -212,3 +212,56 @@ def test_demo_refuses_bundles(tmp_path, studio):
     data = open(_write(tmp_path / "doc.veriscript"), "rb").read()
     r = client.post("/api/restore", files={"file": ("phone.veriscript", data, "application/zip")})
     assert r.status_code == 400 and "Desktop" in r.json()["error"]
+
+
+# --- The phone's corrections in the desktop review (B4, second part) -------
+
+PHONE = {"pages": [
+    {"page": 1, "lines": [
+        {"text": "कुल रकम १२,५००", "original": "कुल रकम १२,६००", "reviewed": True},
+        {"text": "Ward 7", "original": "Ward 7", "reviewed": True},
+        {"text": "not reviewed 999", "original": "not reviewed 999"},
+    ]},
+    {"page": 2, "lines": [{"text": "Total 1,000.", "original": "Tota1 1,O00.", "reviewed": True}]},
+]}
+
+
+def test_phone_changes_are_word_level_and_only_what_the_user_did():
+    changes = bundle.phone_word_changes(PHONE)
+    pairs = {(c["before"], c["after"]) for c in changes}
+    assert ("१२,६००", "१२,५००") in pairs
+    assert ("Tota1 1,O00.", "Total 1,000.") in pairs  # adjacent edits stay one replacement
+    assert ("Ward", "Ward") in pairs and ("7", "7") in pairs  # confirmed line
+    assert not any("999" in c["before"] for c in changes)  # never reviewed: no evidence
+
+
+def test_review_items_get_a_phone_suggestion_or_agreement():
+    review = [
+        {"text": "१२,६००", "suggestions": []},   # desktop read what the phone first read
+        {"text": "१२,५००"},                       # desktop already reads the correction
+        {"text": "(7)"},                          # punctuation around a confirmed word
+        {"text": "999"},                          # phone never reviewed it
+    ]
+    assert bundle.augment_review_with_phone(review, PHONE) == 3
+    first = review[0]
+    assert first["phone"]["agrees"] is False and first["phone"]["page"] == 1
+    assert first["suggestions"] == [{"text": "१२,५००", "source": "phone",
+                                     "why": "Corrected on the phone (page 1): "
+                                            "“कुल रकम १२,६००” → “कुल रकम १२,५००”"}]
+    assert first["text"] == "१२,६००"  # the desktop reading is never replaced
+    assert review[1]["phone"]["agrees"] is True and "suggestions" not in review[1]
+    assert review[2]["phone"]["agrees"] is True
+    assert "phone" not in review[3]
+
+
+def test_run_summary_shows_phone_evidence(tmp_path):
+    from vvweb.pipeline import collect_run_summary
+
+    (tmp_path / "ocr.json").write_text(json.dumps({"tokens": [{}], "review": [
+        {"index": 0, "text": "१२,६००", "flags": ["digit_conflict"], "bbox": [0, 0, 5, 5]}]}),
+        encoding="utf-8")
+    (tmp_path / "phone_reading.json").write_text(json.dumps(PHONE, ensure_ascii=False),
+                                                encoding="utf-8")
+    item = collect_run_summary(str(tmp_path), "r1")["review"][0]
+    assert item["phone"]["agrees"] is False
+    assert any(s["source"] == "phone" and s["text"] == "१२,५००" for s in item["suggestions"])

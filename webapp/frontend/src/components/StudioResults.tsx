@@ -108,7 +108,7 @@ export function StudioResults(props: { state: StudioState }) {
               <p class="field__hint" role="status">
                 From the phone app: {phone().pages} {phone().pages === 1 ? "page" : "pages"}, read again
                 here. {phone().corrected_lines + phone().confirmed_lines > 0
-                  ? `${phone().corrected_lines} corrected and ${phone().confirmed_lines} confirmed lines from the phone are in phone_reading.json; they were not copied into this reading.`
+                  ? `${phone().corrected_lines} corrected and ${phone().confirmed_lines} confirmed lines from the phone are shown beside the matching words in Review, and kept in phone_reading.json. They were not copied into this reading.`
                   : "No lines were corrected on the phone."}
               </p>
             )}

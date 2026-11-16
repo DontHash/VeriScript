@@ -200,6 +200,17 @@ def collect_run_summary(run_dir: str, run_id: str) -> Dict:
     except Exception:  # noqa: BLE001
         pass
 
+    # B4: what the phone's user corrected or confirmed, beside the desktop's
+    # reading of the same words (never copied into it).
+    phone_path = os.path.join(run_dir, "phone_reading.json")
+    if review and os.path.isfile(phone_path):
+        try:
+            from veriscript.document.bundle import augment_review_with_phone
+            with open(phone_path, encoding="utf-8") as f:
+                augment_review_with_phone(review, json.load(f))
+        except (OSError, ValueError):
+            pass
+
     transcript = ""
     transcript_name = ("corrected.txt"
                        if os.path.isfile(os.path.join(run_dir, "corrected.txt"))

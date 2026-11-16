@@ -176,3 +176,103 @@ def iter_images(bundle: Bundle, max_megapixels: int = 60,
             except Exception:  # noqa: BLE001 - any decoder failure is a damaged page
                 raise BundleError(f"Page {i + 1} of the bundle could not be read.") from None
             yield i, cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
+
+
+# ---------------------------------------------------------------------------
+# The phone's corrections in the desktop review (B4, second part).
+# ---------------------------------------------------------------------------
+
+#: Punctuation that may cling to a word on one reader and not the other.
+_EDGE = " \t.,;:!?()[]{}\"'‘’“”।॥-"
+
+
+def _norm(word: str) -> str:
+    return word.strip(_EDGE)
+
+
+def phone_word_changes(phone: Dict) -> List[Dict]:
+    """Word-level edits and confirmations the phone's user made.
+
+    For each line that was corrected on the phone, the original and the
+    corrected words are aligned (difflib); every replaced word gives
+    {"page", "before", "after", "line_before", "line_after"}. A one-to-many or
+    many-to-one replacement is kept whole ("before" or "after" contains a
+    space). Words of lines the user confirmed unchanged give "before" ==
+    "after". Only what the person typed or confirmed: the phone's own reading
+    is never used as evidence on its own.
+    """
+    from difflib import SequenceMatcher
+
+    out: List[Dict] = []
+    for page in phone.get("pages") or []:
+        number = page.get("page")
+        for line in page.get("lines") or []:
+            text = line.get("text")
+            original = line.get("original")
+            if not isinstance(text, str):
+                continue
+            if isinstance(original, str) and original != text:
+                a, b = original.split(), text.split()
+                for op, i1, i2, j1, j2 in SequenceMatcher(a=a, b=b, autojunk=False).get_opcodes():
+                    if op == "replace":
+                        out.append({"page": number, "before": " ".join(a[i1:i2]),
+                                    "after": " ".join(b[j1:j2]),
+                                    "line_before": original, "line_after": text})
+            elif line.get("reviewed"):
+                for word in text.split():
+                    out.append({"page": number, "before": word, "after": word,
+                                "line_before": text, "line_after": text})
+    return out
+
+
+def augment_review_with_phone(review: List[Dict], phone: Dict) -> int:
+    """Attach the phone's evidence to desktop review items; returns how many.
+
+    * The desktop read the word the way the phone's user corrected or
+      confirmed it: ``item["phone"] = {"agrees": True, ...}``.
+    * The desktop read what the phone first read, and the user changed it:
+      ``{"agrees": False, ...}`` plus a suggestion (source "phone") that the
+      reviewer can accept with one click.
+
+    Nothing is changed automatically: the desktop reading stays the reading
+    until the person stages a correction.
+    """
+    changes = phone_word_changes(phone)
+    if not changes:
+        return 0
+    corrected: Dict[str, List[Dict]] = {}
+    settled: Dict[str, Dict] = {}
+    for c in changes:
+        if c["before"] != c["after"]:
+            corrected.setdefault(_norm(c["before"]), []).append(c)
+        for word in c["after"].split():
+            settled.setdefault(_norm(word), c)
+    count = 0
+    for item in review:
+        word = _norm(item.get("text") or "")
+        if not word:
+            continue
+        if word in settled:
+            c = settled[word]
+            item["phone"] = {"agrees": True, "page": c["page"], "before": c["line_before"],
+                             "after": c["line_after"]}
+            count += 1
+        elif word in corrected:
+            c = corrected[word][0]
+            item["phone"] = {"agrees": False, "page": c["page"], "before": c["line_before"],
+                             "after": c["line_after"]}
+            suggestions = item.setdefault("suggestions", [])
+            seen = {s.get("text") for s in suggestions}
+            for c in corrected[word]:
+                # Keep the token's own punctuation around the phone's word.
+                raw = item.get("text") or ""
+                lead = raw[:len(raw) - len(raw.lstrip(_EDGE))]
+                tail = raw[len(raw.rstrip(_EDGE)):]
+                text = lead + _norm(c["after"]) + tail
+                if text and text not in seen:
+                    seen.add(text)
+                    suggestions.append({"text": text, "source": "phone",
+                                        "why": f"Corrected on the phone (page {c['page']}): "
+                                               f"“{c['line_before']}” → “{c['line_after']}”"})
+            count += 1
+    return count

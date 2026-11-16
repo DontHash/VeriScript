@@ -28,6 +28,16 @@ export interface QueueItem {
   suggestions?: Suggestion[];
   /** Review section (Appendix AO): numbers first, text flags after. */
   section?: "number" | "text" | null;
+  /** B4: what the phone's user corrected or confirmed for this word. */
+  phone?: PhoneEvidence | null;
+}
+
+export interface PhoneEvidence {
+  /** True when the desktop reads the word as the phone's user left it. */
+  agrees: boolean;
+  page: number;
+  before: string;
+  after: string;
 }
 
 export interface RunMeta {

@@ -360,6 +360,22 @@ export function CorrectionReview(props: { state: StudioState }) {
                       <span class="review__done">Staged</span>
                     </Show>
                   </div>
+                  <Show when={row.phone}>
+                    {(phone) => (
+                      <p class="review__phone field__hint">
+                        <Show
+                          when={phone().agrees}
+                          fallback={<>Changed on the phone (page {phone().page}): </>}
+                        >
+                          Confirmed on the phone (page {phone().page}):{" "}
+                        </Show>
+                        <Show when={phone().before !== phone().after} fallback={<span class="deva">“{phone().after}”</span>}>
+                          <span class="deva">“{phone().before}”</span> →{" "}
+                          <span class="deva">“{phone().after}”</span>
+                        </Show>
+                      </p>
+                    )}
+                  </Show>
                 </div>
                 </>
               );
