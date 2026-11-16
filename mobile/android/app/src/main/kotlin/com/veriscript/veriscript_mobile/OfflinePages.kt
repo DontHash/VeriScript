@@ -84,6 +84,51 @@ object OfflinePages {
             bitmap.recycle()
         }
     }
+    /** Blur and glare measures for a just-captured photo (docs/TECH_UPGRADE_PLAN.md C3).
+     * Port of evals/harness/eval_capture_quality.py `measures`: a grey copy
+     * with a 1024 px long side (INTER_AREA, as the reference). */
+    private fun captureQuality(path: String): Map<String, Any> = Arena().use { a ->
+        val bitmap = load(path, maxSide = 5000)
+        val g8: Mat
+        try { g8 = gray(rgb(bitmap, a), a) } finally { bitmap.recycle() }
+        val scale = 1024.0 / max(g8.cols(), g8.rows())
+        val small = if (scale < 1) a.mat().also {
+            Imgproc.resize(g8, it, Size(), scale, scale, Imgproc.INTER_AREA)
+        } else g8
+        val g = a.mat(); small.convertTo(g, CvType.CV_32F)
+        val gx = a.mat(); val gy = a.mat(); val mag = a.mat(); val lap = a.mat()
+        Imgproc.Sobel(g, gx, CvType.CV_32F, 1, 0, 3)
+        Imgproc.Sobel(g, gy, CvType.CV_32F, 0, 1, 3)
+        Core.magnitude(gx, gy, mag)
+        Imgproc.Laplacian(g, lap, CvType.CV_32F, 3)
+        val n = (mag.total()).toInt()
+        val m = FloatArray(n).also { mag.get(0, 0, it) }
+        val l = FloatArray(n).also { lap.get(0, 0, it) }
+        val sorted = m.copyOf().also { it.sort() }
+        // numpy's default percentile: linear interpolation between neighbours
+        val pos = (n - 1) * 0.9
+        val lo = floor(pos).toInt()
+        val cut = sorted[lo] + (sorted[min(lo + 1, n - 1)] - sorted[lo]) * (pos - lo)
+        val edgeMag = ArrayList<Float>(); val edgeLap = ArrayList<Float>()
+        for (i in 0 until n) if (m[i] > cut) { edgeMag.add(m[i]); edgeLap.add(abs(l[i])) }
+        fun median(v: List<Float>): Double {
+            val s = v.sorted(); val k = s.size
+            return if (k % 2 == 1) s[k / 2].toDouble() else (s[k / 2 - 1].toDouble() + s[k / 2]) / 2
+        }
+        val sharpness = if (edgeMag.isEmpty()) 0.0 else median(edgeLap) / (median(edgeMag) + 1e-6)
+        val lap1 = a.mat(); Imgproc.Laplacian(g, lap1, CvType.CV_32F)
+        val mean = MatOfDouble(); val std = MatOfDouble()
+        Core.meanStdDev(lap1, mean, std)
+        val lapVar = std.get(0, 0)[0].pow(2)
+        mean.release(); std.release()
+        val bright = a.mat(); Imgproc.threshold(small, bright, 244.0, 255.0, Imgproc.THRESH_BINARY)
+        val labels = a.mat(); val stats = a.mat(); val centroids = a.mat()
+        val count = Imgproc.connectedComponentsWithStats(bright, labels, stats, centroids, 8)
+        var largest = 0.0
+        for (i in 1 until count) largest = max(largest, stats.get(i, Imgproc.CC_STAT_AREA)[0])
+        mapOf("sharpness" to sharpness, "lapvar" to lapVar, "glare" to largest / n,
+              "width" to small.cols(), "height" to small.rows())
+    }
     /** Longest side kept through import, alignment and enhancement.
      * 4096 keeps a 12 MP photo (4032x3024) at full size: an A4 page filling
      * the frame stays near 300 DPI. The old 2500 px limit left about 170 DPI
@@ -446,6 +491,7 @@ object OfflinePages {
         when(method) {
             "video" -> return video(arg(args,"path"),arg(args,"out"),arg(args,"layout"),cancel,progress)
             "jpegInfo" -> return jpegInfo(arg(args,"path"))
+            "captureQuality" -> return captureQuality(arg(args,"path"))
             "textPdf" -> { textPdf(arg(args,"out"),arg(args,"title"),(args["pages"] as List<*>).map { it as String },cancel); return null }
             "pdfInfo", "pdfPage" -> {
                 ParcelFileDescriptor.open(File(arg(args,"path")),ParcelFileDescriptor.MODE_READ_ONLY).use { fd ->

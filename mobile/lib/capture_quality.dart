@@ -50,3 +50,49 @@ class CaptureInfo {
   static int _int(Object? value) => (value as num?)?.toInt() ?? 0;
   static double _double(Object? value) => (value as num?)?.toDouble() ?? 0;
 }
+
+/// Blur and glare measured natively on a just-captured photo
+/// (docs/TECH_UPGRADE_PLAN.md C3; reference: evals/harness/eval_capture_quality.py).
+/// Advisory: the user is offered a retake and may keep the photo.
+class CaptureQuality {
+  const CaptureQuality({
+    required this.sharpness,
+    required this.lapVar,
+    required this.glare,
+  });
+
+  /// Thresholds chosen on DocUNet documents 1-32; on documents 33-65 they
+  /// catch 100% of out-of-focus, 91% of shaken and 100% of glare-damaged
+  /// photos, and warn on 6% of usable ones (those read worse: CER 0.69 vs 0.46).
+  static const blurSharpness = 0.40;
+  static const blurLapVar = 250.0;
+  static const glareFraction = 0.03;
+
+  final double sharpness;
+  final double lapVar;
+  final double glare;
+
+  bool get blurry => sharpness < blurSharpness || lapVar < blurLapVar;
+  bool get hasGlare => glare >= glareFraction;
+  bool get ok => !blurry && !hasGlare;
+
+  /// One plain sentence for the retake prompt, or null when the photo is fine.
+  String? get problem {
+    if (blurry && hasGlare) {
+      return 'This photo looks blurry and has a bright glare patch. Text in it may be misread.';
+    }
+    if (blurry) {
+      return 'This photo looks blurry. Text in it may be misread.';
+    }
+    if (hasGlare) {
+      return 'This photo has a bright glare patch. Text under it may be lost.';
+    }
+    return null;
+  }
+
+  factory CaptureQuality.fromMap(Map<String, dynamic> map) => CaptureQuality(
+    sharpness: CaptureInfo._double(map['sharpness']),
+    lapVar: CaptureInfo._double(map['lapvar']),
+    glare: CaptureInfo._double(map['glare']),
+  );
+}

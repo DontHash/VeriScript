@@ -17,6 +17,15 @@ Future<CaptureInfo> readCaptureInfo(String path) async {
   return CaptureInfo.fromMap(info);
 }
 
+/// Native blur and glare measures for a just-captured photo (C3).
+Future<CaptureQuality> readCaptureQuality(String path) async {
+  final map = await native.invokeMapMethod<String, dynamic>('captureQuality', {
+    'path': path,
+  });
+  if (map == null) throw StateError('No capture quality was returned.');
+  return CaptureQuality.fromMap(map);
+}
+
 class ScanPage {
   ScanPage({
     required this.id,

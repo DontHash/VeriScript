@@ -8,6 +8,36 @@ import 'documents.dart';
 import 'selection.dart';
 import 'errors.dart';
 
+/// Offers a retake when a capture looks blurry or has glare (C3). Returns
+/// true to keep the photo: always when it looks fine or could not be checked,
+/// and when the prompt is closed without a choice (never lose a capture).
+Future<bool> keepAfterQualityCheck(
+  BuildContext context,
+  CaptureQuality? quality,
+) async {
+  final problem = quality?.problem;
+  if (problem == null) return true;
+  final retake = await showDialog<bool>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Text('Retake this page?'),
+      content: Text(problem),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context, false),
+          child: const Text('Keep photo'),
+        ),
+        FilledButton(
+          autofocus: true,
+          onPressed: () => Navigator.pop(context, true),
+          child: const Text('Retake'),
+        ),
+      ],
+    ),
+  );
+  return retake != true;
+}
+
 class CaptureScreen extends StatefulWidget {
   const CaptureScreen({
     super.key,
@@ -132,6 +162,16 @@ class _CaptureScreenState extends State<CaptureScreen>
     return photo.path;
   }
 
+  Future<CaptureQuality?> _readQuality(String path) async {
+    try {
+      return await readCaptureQuality(path);
+    } catch (e) {
+      // Like validation, the check never costs the user a capture.
+      debugPrint('Could not check capture quality: $e');
+      return null;
+    }
+  }
+
   Future<CaptureInfo?> _readInfo(String path) async {
     try {
       return await readCaptureInfo(path);
@@ -221,6 +261,15 @@ class _CaptureScreenState extends State<CaptureScreen>
     setState(() => saving = true);
     try {
       final path = await _validatedPhotoPath();
+      // C3: blur and glare are advisory. Retake discards this photo; Keep
+      // (or closing the prompt) adds it as it is.
+      final quality = await _readQuality(path);
+      if (mounted && !await keepAfterQualityCheck(context, quality)) {
+        try {
+          await File(path).delete();
+        } catch (_) {}
+        return;
+      }
       await widget.onPhoto!(path);
       if (mounted) {
         unawaited(HapticFeedback.mediumImpact());
