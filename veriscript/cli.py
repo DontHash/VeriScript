@@ -159,7 +159,8 @@ def run_document_mode(args) -> int:
                 make_pdf=not args.no_pdf, make_overlay=not args.no_overlay,
                 make_txt=not args.no_txt, make_json=True,
                 make_md=not getattr(args, "no_md", False),
-                pdf_size=getattr(args, "pdf_size", "standard"))
+                pdf_size=getattr(args, "pdf_size", "standard"),
+                flatten=getattr(args, "flatten", False))
             if not getattr(args, "no_tables", False):
                 from veriscript.document import tables as doc_tables
                 found = doc_tables.extract_tables(res.ocr.tokens)
@@ -462,6 +463,9 @@ def main():
     doc.add_argument("--no-pdf", action="store_true", dest="no_pdf")
     doc.add_argument("--no-tables", action="store_true", dest="no_tables",
                      help="do not write <name>_tables.xlsx/.csv for detected tables")
+    doc.add_argument("--flatten", action="store_true", dest="flatten",
+                     help="straighten curved or folded phone photos first "
+                          "(needs the local UVDoc model, docs/EXTERNAL_ASSETS.md)")
     doc.add_argument("--pdf-size", choices=["standard", "small", "archive"],
                      default="standard", dest="pdf_size",
                      help="searchable-PDF page images: standard (JPEG, full "

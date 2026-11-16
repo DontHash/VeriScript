@@ -129,7 +129,8 @@ def run_document_pipeline(img_bgr: np.ndarray, *, backend: Optional[str] = None,
                           make_md: bool = True,
                           conf_threshold: float = 60.0,
                           pdf_size: str = "standard",
-                          title: Optional[str] = None) -> DocumentResult:
+                          title: Optional[str] = None,
+                          flatten: bool = False) -> DocumentResult:
     """`primary_stream` ("raw"|"restored", None = RECOMMENDED_STREAM) exists
     for evaluation A/Bs; production callers leave it unset.
 
@@ -158,6 +159,11 @@ def run_document_pipeline(img_bgr: np.ndarray, *, backend: Optional[str] = None,
     prefers over the engine reading becomes `context_conflict` plus a
     suggestion. Flag-only, deterministic, opt-in until its frozen gate.
 
+    `flatten` straightens a curved or folded phone photo with UVDoc before
+    anything else (veriscript/document/dewarp.py). It needs the local model
+    and does nothing without it. It is opt-in: it passed its gate on the
+    DocUNet photos (English), but it can blur pages that were already flat.
+
     `digit_confusions` appends measured digit-confusion chips (9 vs 1/2/0,
     ...) to the riskiest queued digit tokens. Suggestion-only: no flags, no
     text changes, no queue order changes - it cannot move frozen metrics."""
@@ -170,6 +176,9 @@ def run_document_pipeline(img_bgr: np.ndarray, *, backend: Optional[str] = None,
     # OCR boxes and the exported page always agree. (Regression: >MAX_SIDE
     # inputs used to be OCR'd at full resolution while the display was
     # downscaled - boxes fell outside the exported page.)
+    if flatten:
+        from veriscript.document.dewarp import maybe_flatten
+        img_bgr = maybe_flatten(img_bgr, True)
     img_bgr, fit = fit_max_side(img_bgr)
     resized = fit < 1.0
 
