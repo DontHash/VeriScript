@@ -23,6 +23,7 @@ def test_off_or_missing_model_leaves_the_image_alone(monkeypatch, tmp_path):
     img = np.full((40, 30, 3), 200, np.uint8)
     assert dewarp.maybe_flatten(img, False) is img
     monkeypatch.setenv("VERISCRIPT_UVDOC", str(tmp_path / "missing.pkl"))
+    monkeypatch.setenv("VERISCRIPT_UVDOC_ONNX", str(tmp_path / "missing.onnx"))
     assert not dewarp.available()
     assert dewarp.maybe_flatten(img, True) is img
 
@@ -146,8 +147,65 @@ def test_pick_mode_without_the_model_reads_the_photo_once(monkeypatch):
     from veriscript.document import pipeline
 
     monkeypatch.setenv("VERISCRIPT_UVDOC", "missing.pkl")
+    monkeypatch.setenv("VERISCRIPT_UVDOC_ONNX", "missing.onnx")
     monkeypatch.setattr(dewarp, "pick_reading", lambda *a: pytest.fail("needs the model"))
     res = pipeline.run_document_pipeline(np.full((60, 60, 3), 255, np.uint8), flatten="pick",
                                          make_pdf=False, make_overlay=False, make_txt=False,
                                          make_json=False, make_md=False)
     assert "flatten" not in res.meta
+
+
+@pytest.mark.skipif(not os.path.isfile(dewarp.DEFAULT_ONNX), reason="UVDoc ONNX not exported")
+def test_onnx_grid_and_sampling_match_pytorch(monkeypatch):
+    """F1 in the studio: the ONNX model and the OpenCV sampling give the
+    PyTorch result (scripts/export_uvdoc_onnx.py) to within rounding."""
+    torch = pytest.importorskip("torch")
+    if not os.path.isfile(dewarp.checkpoint_path()):
+        pytest.skip("PyTorch weights not downloaded")
+    import torch.nn.functional as F
+
+    rng = np.random.default_rng(0)
+    img = np.full((900, 640, 3), 235, np.uint8)
+    for y in range(120, 800, 40):
+        img[y:y + 12, 80:560] = rng.integers(10, 60)
+    grid = dewarp.predict_grid(img)
+    monkeypatch.setenv("VERISCRIPT_UVDOC_ONNX", "missing.onnx")
+    ref = dewarp.predict_grid(img)
+    assert np.abs(grid - ref).max() * 900 / 2 < 0.05  # pixels
+    rgb = torch.from_numpy(img.astype(np.float32).transpose(2, 0, 1))[None]
+    g = F.interpolate(torch.from_numpy(ref), size=(900, 640), mode="bilinear", align_corners=True)
+    want = F.grid_sample(rgb, g.permute(0, 2, 3, 1), mode="bilinear", align_corners=True)[0]
+    want = want.numpy().transpose(1, 2, 0)
+    got = dewarp.apply_grid(img, ref[0], (900, 640)).astype(np.float32)
+    # OpenCV samples the photo at 1/32-pixel steps: a few grey levels at edges.
+    assert np.abs(got - want).mean() < 0.6 and np.abs(got - want).max() <= 6
+
+
+@pytest.mark.parametrize("model, asked, expected", [
+    (True, "1", "pick"), (True, "0", False), (False, "1", False)])
+def test_studio_flatten_option_reaches_the_pipeline(monkeypatch, tmp_path, model, asked, expected):
+    """F1 in the studio: offered only when the model is installed; then it
+    reads the photo and the flattened page and keeps the clearer reading."""
+    pytest.importorskip("fastapi")
+    import dataclasses
+
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "webapp"))
+    from fastapi.testclient import TestClient
+
+    import vvweb.api as api_mod
+    from test_webapp_api import _fake_pipeline, _png_bytes
+    from veriscript.document import pipeline as document_pipeline
+    from vvweb.storage import RunStore
+
+    captured: dict = {}
+    monkeypatch.setattr(document_pipeline, "run_document_pipeline", _fake_pipeline(captured))
+    monkeypatch.setattr(dewarp, "available", lambda: model)
+    monkeypatch.setattr(api_mod, "store", RunStore(str(tmp_path / "runs"), 0))
+    monkeypatch.setattr(api_mod, "settings",
+                        dataclasses.replace(api_mod.settings, mode="local", run_ttl_minutes=0))
+    client = TestClient(api_mod.create_app())
+    assert client.get("/api/health").json()["limits"]["flatten"] is model
+    r = client.post("/api/restore", files={"file": ("page.png", _png_bytes(), "image/png")},
+                    data={"flatten": asked})
+    assert r.status_code == 200, r.text
+    assert captured["calls"][0]["flatten"] == expected

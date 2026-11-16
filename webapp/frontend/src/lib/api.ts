@@ -76,6 +76,8 @@ export interface RestoreOptions {
   autoRotate: boolean;
   outputs: { overlay: boolean; pdf: boolean; txt: boolean; md: boolean };
   pdfSize?: PdfSize;
+  /** F1: read the photo and the flattened page, keep the better reading. */
+  flatten?: boolean;
 }
 
 function restoreForm(file: File | Blob, opts: RestoreOptions): FormData {
@@ -92,6 +94,7 @@ function restoreForm(file: File | Blob, opts: RestoreOptions): FormData {
   body.append("txt", opts.outputs.txt ? "1" : "0");
   body.append("md", opts.outputs.md ? "1" : "0");
   body.append("pdf_size", opts.pdfSize ?? "standard");
+  body.append("flatten", opts.flatten ? "1" : "0");
   return body;
 }
 

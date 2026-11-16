@@ -454,20 +454,44 @@ class _PageEditorState extends State<PageEditor> {
                                       icon: const Icon(Icons.crop),
                                       label: const Text('Crop corners'),
                                     ),
-                                    TextButton(
-                                      onPressed: () => transform('enhance'),
-                                      child: const Text('Enhance & upscale'),
-                                    ),
-                                    TextButton(
-                                      onPressed: () => transform('restore'),
-                                      child: const Text('Auto-align original'),
-                                    ),
-                                    TextButton(
-                                      onPressed: () => transform(
-                                        'normalize',
-                                        arguments: {'path': page.source},
+                                    // Less frequent image tools in one
+                                    // menu, so the bar fits at large text
+                                    // sizes. F1 "Flatten curved page" is
+                                    // opt-in per page (UVDoc); Restore
+                                    // previous text or Reset original undo it.
+                                    PopupMenuButton<(String, Map<String, dynamic>)>(
+                                      tooltip: 'More image tools',
+                                      onSelected: (v) =>
+                                          transform(v.$1, arguments: v.$2),
+                                      itemBuilder: (_) => [
+                                        const PopupMenuItem(
+                                          value: ('enhance', <String, dynamic>{}),
+                                          child: Text('Enhance & upscale'),
+                                        ),
+                                        const PopupMenuItem(
+                                          value: ('restore', <String, dynamic>{}),
+                                          child: Text('Auto-align original'),
+                                        ),
+                                        const PopupMenuItem(
+                                          value: ('flatten', <String, dynamic>{}),
+                                          child: Text('Flatten curved page'),
+                                        ),
+                                        PopupMenuItem(
+                                          value: ('normalize', {'path': page.source}),
+                                          child: const Text('Reset original'),
+                                        ),
+                                      ],
+                                      child: const Padding(
+                                        padding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Icon(Icons.more_horiz),
+                                            SizedBox(width: 8),
+                                            Text('More'),
+                                          ],
+                                        ),
                                       ),
-                                      child: const Text('Reset original'),
                                     ),
                                   ],
                                 ),

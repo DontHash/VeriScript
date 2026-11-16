@@ -37,8 +37,14 @@ datas = [
     (str(ROOT / "fonts" / "OFL.txt"), "fonts"),
     (str(ROOT / "calibration" / "rapidocr_devanagari_v1.json"), "calibration"),
 ]
+# F1: curved-page flattening runs on onnxruntime (no torch). The model is
+# made by scripts/export_uvdoc_onnx.py (MIT, docs/EXTERNAL_ASSETS.md); a
+# build without it simply does not offer the option.
+UVDOC = ROOT / "data" / "external" / "uvdoc" / "model" / "uvdoc.onnx"
+if UVDOC.is_file():
+    datas += [(str(UVDOC), "uvdoc"), (str(ROOT / "data" / "external" / "uvdoc" / "LICENSE"), "uvdoc")]
 binaries, hiddenimports = [], []
-for pkg in ("rapidocr", "onnxruntime", "reportlab", "pypdfium2", "uvicorn"):
+for pkg in ("rapidocr", "onnxruntime", "reportlab", "pypdfium2", "uvicorn", "pypdf", "cryptography"):
     d, b, h = collect_all(pkg)
     datas += d
     binaries += b

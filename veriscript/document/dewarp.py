@@ -6,9 +6,18 @@ a 488x712 copy and applied to the full-resolution photo, so text keeps its
 pixels.
 
 Opt-in until it passes its gate on real photos (evals/harness/eval_dewarp.py).
-The model is not shipped: it is loaded from `VERISCRIPT_UVDOC` or
-`data/external/uvdoc/model/best_model.pkl` (docs/EXTERNAL_ASSETS.md), always
-with `torch.load(weights_only=True)`, which refuses arbitrary pickled objects.
+Two ways to run the same model, the first available wins:
+
+* ONNX (`VERISCRIPT_UVDOC_ONNX` or `data/external/uvdoc/model/uvdoc.onnx`,
+  made by scripts/export_uvdoc_onnx.py; grid within 0.002 px of PyTorch at
+  2000 px). Needs only onnxruntime, which the studio and the phone already
+  ship, so flattening works in the desktop studio without PyTorch.
+* PyTorch: `VERISCRIPT_UVDOC` or `data/external/uvdoc/model/best_model.pkl`
+  (docs/EXTERNAL_ASSETS.md), always with `torch.load(weights_only=True)`,
+  which refuses arbitrary pickled objects.
+
+The grid is applied with OpenCV (`cv2.remap`, bilinear, the same sampling
+as torch's grid_sample with align_corners=True).
 """
 from __future__ import annotations
 
@@ -20,16 +29,37 @@ import numpy as np
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 DEFAULT_CKPT = os.path.join(_ROOT, "data", "external", "uvdoc", "model", "best_model.pkl")
+DEFAULT_ONNX = os.path.join(_ROOT, "data", "external", "uvdoc", "model", "uvdoc.onnx")
 INPUT_SIZE = (488, 712)  # width, height the model was trained at
 
 _model = None
+_session = None
 
 
 def checkpoint_path() -> str:
     return os.environ.get("VERISCRIPT_UVDOC") or DEFAULT_CKPT
 
 
+def onnx_path() -> str:
+    """The ONNX model: the environment, next to a frozen app, or the repo."""
+    env = os.environ.get("VERISCRIPT_UVDOC_ONNX")
+    if env:
+        return env
+    frozen = os.path.join(getattr(sys, "_MEIPASS", ""), "uvdoc", "uvdoc.onnx")
+    return frozen if getattr(sys, "frozen", False) and os.path.isfile(frozen) else DEFAULT_ONNX
+
+
+def _onnx_ok() -> bool:
+    try:
+        import onnxruntime  # noqa: F401
+    except ImportError:
+        return False
+    return os.path.isfile(onnx_path())
+
+
 def available() -> bool:
+    if _onnx_ok():
+        return True
     try:
         import torch  # noqa: F401
     except ImportError:
@@ -59,17 +89,30 @@ def _load():
     return net
 
 
-def predict_grid(image_bgr: np.ndarray):
-    """UVDoc's sampling grid for the page, a (1, 2, 45, 31) tensor in [-1, 1]."""
+def _onnx():
+    global _session
+    if _session is None:
+        import onnxruntime as ort
+
+        _session = ort.InferenceSession(onnx_path(), providers=["CPUExecutionProvider"])
+    return _session
+
+
+def predict_grid(image_bgr: np.ndarray) -> np.ndarray:
+    """UVDoc's sampling grid for the page, a (1, 2, 45, 31) array in [-1, 1]."""
     import cv2
+
+    rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
+    small = cv2.resize(rgb, INPUT_SIZE, interpolation=cv2.INTER_AREA)
+    x = np.ascontiguousarray(small.transpose(2, 0, 1)[None])
+    if _onnx_ok():
+        return _onnx().run(None, {"image": x})[0]
     import torch
 
     net = _load()
-    rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
-    small = cv2.resize(rgb, INPUT_SIZE, interpolation=cv2.INTER_AREA)
     with torch.no_grad():
-        points, _ = net(torch.from_numpy(small.transpose(2, 0, 1)).unsqueeze(0))
-    return points
+        points, _ = net(torch.from_numpy(x))
+    return points.numpy()
 
 
 def page_size(points, image_hw) -> tuple[int, int]:
@@ -80,7 +123,7 @@ def page_size(points, image_hw) -> tuple[int, int]:
     keeps letter shapes (a narrow receipt stretched to the photo's frame
     gets letters about twice as wide)."""
     h, w = image_hw
-    g = points[0].numpy()
+    g = np.asarray(points)[0]
     xy = np.stack([(g[0] + 1) / 2 * (w - 1), (g[1] + 1) / 2 * (h - 1)], -1)  # (gh, gw, 2)
     width = np.linalg.norm(np.diff(xy, axis=1), axis=-1).sum(1).mean()
     height = np.linalg.norm(np.diff(xy, axis=0), axis=-1).sum(0).mean()
@@ -95,21 +138,47 @@ def flatten(image_bgr: np.ndarray, points=None, keep_aspect: bool = False) -> np
     receipt: CER 0.45 -> 0.18) but was slightly worse overall (mean CER
     0.284 vs 0.269), so the frame stays the default."""
     import cv2
-    import torch
-    import torch.nn.functional as F
 
-    h, w = image_bgr.shape[:2]
-    rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
+    src_h, src_w = image_bgr.shape[:2]
+    h, w = src_h, src_w
     if points is None:
         points = predict_grid(image_bgr)
     if keep_aspect:
         h, w = page_size(points, (h, w))
-    with torch.no_grad():
-        grid = F.interpolate(points, size=(h, w), mode="bilinear", align_corners=True)
-        out = F.grid_sample(torch.from_numpy(rgb.transpose(2, 0, 1)).unsqueeze(0),
-                            grid.permute(0, 2, 3, 1), mode="bilinear", align_corners=True)
-    flat = (out[0].numpy().transpose(1, 2, 0) * 255.0).clip(0, 255).astype(np.uint8)
-    return cv2.cvtColor(flat, cv2.COLOR_RGB2BGR)
+    return apply_grid(image_bgr, np.asarray(points)[0], (h, w))
+
+
+def apply_grid(image_bgr: np.ndarray, grid: np.ndarray, out_hw) -> np.ndarray:
+    """Sample `image_bgr` through `grid` (2, gh, gw) in [-1, 1].
+
+    Same as torch's interpolate(bilinear) + grid_sample(bilinear), both with
+    align_corners=True: the small grid is stretched corner to corner over
+    the output, then each output pixel reads the photo at that point."""
+    import cv2
+
+    h, w = out_hw
+    src_h, src_w = image_bgr.shape[:2]
+    gh, gw = grid.shape[1:]
+    # align_corners=True: output pixel i sits at grid position i*(g-1)/(n-1).
+    # Exact bilinear weights (cv2.remap's 1/32-pixel fixed point is fine on
+    # the photo but would move points by about 2 px when stretching the
+    # 45x31 grid over a 2000 px page).
+    def weights(n: int, g: int) -> np.ndarray:
+        pos = np.arange(n, dtype=np.float64) * ((g - 1) / max(1, n - 1))
+        lo = np.minimum(np.floor(pos).astype(int), g - 2)
+        frac = pos - lo
+        m = np.zeros((n, g))
+        m[np.arange(n), lo] = 1 - frac
+        m[np.arange(n), lo + 1] = frac
+        return m
+
+    ry, rx = weights(h, gh), weights(w, gw)
+    gx = (ry @ grid[0].astype(np.float64) @ rx.T).astype(np.float32)
+    gy = (ry @ grid[1].astype(np.float64) @ rx.T).astype(np.float32)
+    map_x = (gx + 1) / 2 * (src_w - 1)
+    map_y = (gy + 1) / 2 * (src_h - 1)
+    return cv2.remap(image_bgr, map_x, map_y, cv2.INTER_LINEAR,
+                     borderMode=cv2.BORDER_CONSTANT, borderValue=(0, 0, 0))
 
 
 def reading_confidence(tokens) -> float:

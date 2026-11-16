@@ -189,6 +189,25 @@ export function StudioPanel(props: { state: StudioState; compact?: boolean }) {
           </p>
         </div>
 
+        <Show when={s.health()?.limits.flatten}>
+          <div class="field">
+            <label class="checkbox">
+              <input
+                type="checkbox"
+                checked={s.flatten()}
+                disabled={running()}
+                aria-describedby={`flatten-hint-${suffix}`}
+                onChange={(e) => s.setFlatten(e.currentTarget.checked)}
+              />
+              <span>Flatten curved or folded pages</span>
+            </label>
+            <p class="field__hint" id={`flatten-hint-${suffix}`}>
+              For photos of book pages and folded sheets. Each page is read twice, as taken and
+              flattened, and the clearer reading is kept, so reading takes about twice as long.
+            </p>
+          </div>
+        </Show>
+
         <label class="checkbox">
           <input
             type="checkbox"

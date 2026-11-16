@@ -47,3 +47,4 @@ app.*.map.json
 /android/app/release
 /android/app/src/main/assets/rapidocr/
 /android/.kotlin/
+/android/app/src/main/assets/uvdoc/*.onnx

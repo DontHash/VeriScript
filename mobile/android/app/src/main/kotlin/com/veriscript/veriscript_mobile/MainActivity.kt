@@ -18,6 +18,7 @@ class MainActivity : FlutterActivity() {
     private val cancelled = AtomicBoolean(false)
     private val busy = AtomicBoolean(false)
     private var rapidOcr: RapidOcr? = null
+    private var flattener: Flattener? = null
     override fun configureFlutterEngine(engine: FlutterEngine) {
         super.configureFlutterEngine(engine)
         engine.plugins.add(ScanCameraPlugin())
@@ -63,7 +64,9 @@ class MainActivity : FlutterActivity() {
                 worker.execute {
                     try {
                         val args = call.arguments as? Map<*, *> ?: emptyMap<Any, Any>()
-                        val output = if (call.method in setOf("rapidOcr", "rapidOcrLine", "cutOff")) {
+                        val output = if (call.method == "flatten") {
+                            (flattener ?: Flattener(applicationContext).also { flattener = it }).run(args, cancelled)
+                        } else if (call.method in setOf("rapidOcr", "rapidOcrLine", "cutOff")) {
                             val reader = rapidOcr ?: RapidOcr(applicationContext).also { rapidOcr = it }
                             when (call.method) {
                                 "rapidOcr" -> reader.run(args, cancelled)
@@ -144,7 +147,7 @@ class MainActivity : FlutterActivity() {
         // The work lives in this engine; once it is gone there is nothing to keep alive.
         ProcessingService.stop(applicationContext)
         cancelled.set(true)
-        worker.execute { rapidOcr?.close(); rapidOcr = null }
+        worker.execute { rapidOcr?.close(); rapidOcr = null; flattener?.close(); flattener = null }
         worker.shutdown()
         super.onDestroy()
     }

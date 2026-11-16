@@ -241,6 +241,7 @@ def process_page(upload_path: str, run_dir: str, run_id: str, *,
                  page_cap: Optional[int] = None,
                  use_text_layer: bool = True,
                  pdf_size: str = "standard",
+                 flatten: bool = False,
                  title: Optional[str] = None) -> Dict:
     """Run restore+OCR and write canonical artifacts into run_dir.
 
@@ -319,7 +320,10 @@ def process_page(upload_path: str, run_dir: str, run_id: str, *,
                     out_dir=run_dir, stem=page_stem,
                     make_pdf=make_pdf or merge, make_overlay=make_overlay,
                     make_txt=make_txt, make_json=True, make_md=make_md,
-                    pdf_size=pdf_size, title=title)
+                    pdf_size=pdf_size, title=title,
+                    # F1: read the photo and the flattened page, keep the
+                    # more confident reading (opt-in, as in the CLI).
+                    flatten="pick" if flatten else False)
             del img_bgr
             if merge:  # originals straight from the upload (shared fonts)
                 page_pdfs.append((upload_path, idx) if idx in kept

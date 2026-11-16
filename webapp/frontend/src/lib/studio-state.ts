@@ -109,6 +109,7 @@ export function createStudioState() {
   const [wantTxt, setWantTxt] = createSignal(true);
   const [wantMd, setWantMd] = createSignal(true);
   const [pdfSize, setPdfSize] = createSignal<PdfSize>("standard");
+  const [flatten, setFlatten] = createSignal(false);
   const [advancedOpen, setAdvancedOpen] = createSignal(false);
   const [phase, setPhase] = createSignal<StudioPhase>("idle");
   const [result, setResult] = createSignal<RunPayload | null>(null);
@@ -298,6 +299,7 @@ export function createStudioState() {
     allPages: allPages(),
     autoRotate: autoRotate(),
     pdfSize: pdfSize(),
+    flatten: flatten() && !!health()?.limits.flatten,
     outputs: { overlay: wantOverlay(), pdf: wantPdf(), txt: wantTxt(), md: wantMd() },
   });
 
@@ -536,6 +538,8 @@ export function createStudioState() {
     setWantTxt,
     wantMd,
     pdfSize,
+    flatten,
+    setFlatten,
     setPdfSize,
     setWantMd,
     advancedOpen,

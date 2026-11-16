@@ -167,6 +167,8 @@ export interface Health {
   busy: boolean;
   limits: {
     max_upload_mb: number;
+    /** F1: curved-page flattening is installed. */
+    flatten?: boolean;
     video_upload_mb: number;
     video_max_pages: number;
     video_max_seconds: number;

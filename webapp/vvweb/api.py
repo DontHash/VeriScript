@@ -227,6 +227,15 @@ async def _lifespan(app: FastAPI):
         task.cancel()
 
 
+def _flatten_available() -> bool:
+    """UVDoc (ONNX or PyTorch) is installed (docs/TECH_UPGRADE_PLAN.md F1)."""
+    try:
+        from veriscript.document import dewarp
+        return dewarp.available()
+    except Exception:  # noqa: BLE001 - a broken install only hides the option
+        return False
+
+
 def create_app() -> FastAPI:
     app = FastAPI(title="VeriScript Studio", version=VERSION,
                   docs_url=None, redoc_url=None, openapi_url=None,
@@ -251,6 +260,8 @@ def create_app() -> FastAPI:
             "busy": _busy(),
             "limits": {
                 "max_upload_mb": settings.max_upload_mb,
+                # F1: curved-page flattening is offered when the model is here.
+                "flatten": _flatten_available(),
                 "video_upload_mb": settings.video_upload_mb,
                 "video_max_pages": settings.video_max_pages,
                 "video_max_seconds": settings.video_max_seconds,
@@ -290,7 +301,8 @@ def create_app() -> FastAPI:
     async def _submit(request: Request, file: UploadFile, *, lang: str,
                       deskew: str, ocr: str, overlay: str, pdf: str, txt: str,
                       md: str, all_pages: str, auto_rotate: str,
-                      text_layer: str = "1", pdf_size: str = "standard") -> Job:
+                      text_layer: str = "1", pdf_size: str = "standard",
+                      flatten: str = "0") -> Job:
         """Validate, store and charge an upload, then queue it as a job.
 
         Never blocks the event loop: the job runs on the job worker, which
@@ -378,7 +390,8 @@ def create_app() -> FastAPI:
                        all_pages=all_pages_flag,
                        auto_rotate=_flag(auto_rotate),
                        use_text_layer=_flag(text_layer),
-                       pdf_size=pdf_size if pdf_size in PDF_SIZES else "standard")
+                       pdf_size=pdf_size if pdf_size in PDF_SIZES else "standard",
+                       flatten=_flag(flatten) and _flatten_available())
 
         # Library title: the uploaded file's name without its extension.
         title = os.path.splitext(os.path.basename(file.filename or ""))[0][:120]             or "Untitled"
@@ -440,11 +453,12 @@ def create_app() -> FastAPI:
                          all_pages: str = Form("0"),
                          auto_rotate: str = Form("1"),
                          text_layer: str = Form("1"),
-                         pdf_size: str = Form("standard")) -> JSONResponse:
+                         pdf_size: str = Form("standard"),
+                         flatten: str = Form("0")) -> JSONResponse:
         job = await _submit(request, file, lang=lang, deskew=deskew, ocr=ocr,
                             overlay=overlay, pdf=pdf, txt=txt, md=md,
                             all_pages=all_pages, auto_rotate=auto_rotate,
-                            text_layer=text_layer, pdf_size=pdf_size)
+                            text_layer=text_layer, pdf_size=pdf_size, flatten=flatten)
         return JSONResponse(job.public(jobs.position(job)),
                             status_code=status.HTTP_202_ACCEPTED,
                             headers={"Location": f"/api/jobs/{job.id}"})
@@ -473,7 +487,8 @@ def create_app() -> FastAPI:
                       all_pages: str = Form("0"),
                       auto_rotate: str = Form("1"),
                       text_layer: str = Form("1"),
-                      pdf_size: str = Form("standard")) -> JSONResponse:
+                      pdf_size: str = Form("standard"),
+                      flatten: str = Form("0")) -> JSONResponse:
         """Queue the upload and wait for it (scripts and the typed client).
 
         Waiting polls the job without blocking the event loop. If the caller
@@ -481,7 +496,7 @@ def create_app() -> FastAPI:
         job = await _submit(request, file, lang=lang, deskew=deskew, ocr=ocr,
                             overlay=overlay, pdf=pdf, txt=txt, md=md,
                             all_pages=all_pages, auto_rotate=auto_rotate,
-                            text_layer=text_layer, pdf_size=pdf_size)
+                            text_layer=text_layer, pdf_size=pdf_size, flatten=flatten)
         try:
             while not job.done.is_set():
                 await asyncio.sleep(0.05)
