@@ -521,6 +521,7 @@ class VideoOptionsSheet extends StatefulWidget {
 
 class _VideoOptionsSheetState extends State<VideoOptionsSheet> {
   String layout = 'spread';
+  bool fingers = false;
   @override
   Widget build(BuildContext context) => SafeArea(
     child: Padding(
@@ -560,15 +561,26 @@ class _VideoOptionsSheetState extends State<VideoOptionsSheet> {
                     .toList(),
             onChanged: (v) => setState(() => layout = v!),
           ),
+          // F3: off by default (pictures printed to a page edge can be
+          // blanked too); ink is never changed.
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Remove fingers at page edges'),
+            subtitle: const Text(
+              'Blanks thumbs and fingers holding the book. Text is never changed; pictures at the page edge can be blanked too.',
+            ),
+            value: fingers,
+            onChanged: (v) => setState(() => fingers = v),
+          ),
           const SizedBox(height: 20),
           FilledButton.icon(
-            onPressed: () => Navigator.pop(context, ('record', layout)),
+            onPressed: () => Navigator.pop(context, ('record', layout, fingers)),
             icon: const Icon(Icons.videocam_outlined),
             label: const Text('Record a book'),
           ),
           const SizedBox(height: 12),
           OutlinedButton.icon(
-            onPressed: () => Navigator.pop(context, ('import', layout)),
+            onPressed: () => Navigator.pop(context, ('import', layout, fingers)),
             icon: const Icon(Icons.video_library_outlined),
             label: const Text('Import a video'),
           ),

@@ -129,6 +129,97 @@ object OfflinePages {
         mapOf("sharpness" to sharpness, "lapvar" to lapVar, "glare" to largest / n,
               "width" to small.cols(), "height" to small.rows())
     }
+    /** Finger cleanup for book pages (docs/TECH_UPGRADE_PLAN.md F3).
+     * Port of veriscript/document/fingers.py `finger_mask` + `clean_fingers`
+     * on an RGB page: skin-coloured regions touching the left, right or
+     * bottom edge (small, shallow, short edge contact, smooth inside) are
+     * filled with the median paper colour around them; ink (black-hat) and
+     * every colourless pixel are never changed. Returns the regions blanked. */
+    private fun cleanFingers(page: Mat, a: Arena): Int {
+        val h = page.rows(); val w = page.cols(); val n = h * w
+        val ycc = a.mat(); Imgproc.cvtColor(page, ycc, Imgproc.COLOR_RGB2YCrCb)
+        val px = ByteArray(n * 3).also { ycc.get(0, 0, it) }
+        val chroma = FloatArray(n)
+        val skin = ByteArray(n)
+        for (i in 0 until n) {
+            val y = px[i * 3].toInt() and 255
+            val cr = px[i * 3 + 1].toInt() and 255
+            val cb = px[i * 3 + 2].toInt() and 255
+            val c = hypot((cr - 128).toDouble(), (cb - 128).toDouble()).toFloat()
+            chroma[i] = c
+            if (cr in 136..175 && cb in 80..130 && c >= 12f && y > 40) skin[i] = 1
+        }
+        val scale = max(h, w) / 1000.0
+        val k = max(3, (5 * scale).roundToInt() or 1)
+        val mask = a.own(Mat(h, w, CvType.CV_8U)); mask.put(0, 0, skin)
+        Imgproc.morphologyEx(mask, mask, Imgproc.MORPH_OPEN, a.own(Mat.ones(k, k, CvType.CV_8U)))
+        Imgproc.morphologyEx(mask, mask, Imgproc.MORPH_CLOSE, a.own(Mat.ones(2 * k + 1, 2 * k + 1, CvType.CV_8U)))
+        val labels = a.mat(); val stats = a.mat(); val centroids = a.mat()
+        val count = Imgproc.connectedComponentsWithStats(mask, labels, stats, centroids, 8)
+        val grey = gray(page, a)
+        val blurred = a.mat(); Imgproc.GaussianBlur(grey, blurred, Size(0.0, 0.0), max(1.0, scale))
+        val gx = a.mat(); val gy = a.mat(); val grad = a.mat()
+        Imgproc.Sobel(blurred, gx, CvType.CV_32F, 1, 0); Imgproc.Sobel(blurred, gy, CvType.CV_32F, 0, 1)
+        Core.magnitude(gx, gy, grad)
+        val keep = a.own(Mat.zeros(h, w, CvType.CV_8U))
+        val ex = .02 * w; val ey = .02 * h
+        val bandX = max(1, ex.toInt()); val bandY = max(1, ey.toInt())
+        var kept = 0
+        for (i in 1 until count) {
+            val x = stats.get(i, Imgproc.CC_STAT_LEFT)[0].toInt(); val y = stats.get(i, Imgproc.CC_STAT_TOP)[0].toInt()
+            val bw = stats.get(i, Imgproc.CC_STAT_WIDTH)[0].toInt(); val bh = stats.get(i, Imgproc.CC_STAT_HEIGHT)[0].toInt()
+            val area = stats.get(i, Imgproc.CC_STAT_AREA)[0]
+            if (area < .0008 * n || area > .15 * n) continue
+            val left = x <= ex; val right = x + bw >= w - ex; val bottom = y + bh >= h - ey
+            if (!(left || right || bottom)) continue
+            if ((left && bw > .30 * w) || (right && bw > .30 * w) || (bottom && !(left || right) && bh > .30 * h)) continue
+            val region = a.mat(); Core.compare(labels, Scalar(i.toDouble()), region, Core.CMP_EQ)
+            fun rowsTouched(r: Rect): Int { val m = a.mat(); Core.reduce(a.own(region.submat(r)), m, 1, Core.REDUCE_MAX); return Core.countNonZero(m) }
+            fun colsTouched(r: Rect): Int { val m = a.mat(); Core.reduce(a.own(region.submat(r)), m, 0, Core.REDUCE_MAX); return Core.countNonZero(m) }
+            val contact = maxOf(
+                if (left) rowsTouched(Rect(0, 0, bandX, h)).toDouble() / h else 0.0,
+                if (right) rowsTouched(Rect(w - bandX, 0, bandX, h)).toDouble() / h else 0.0,
+                if (bottom) colsTouched(Rect(0, h - bandY, w, bandY)).toDouble() / w else 0.0)
+            if (contact > .20) continue
+            val inner = a.mat(); Imgproc.erode(region, inner, a.own(Mat.ones(2 * k + 1, 2 * k + 1, CvType.CV_8U)))
+            if (Core.countNonZero(inner) > 50 && Core.mean(grad, inner).`val`[0] > 25.0) continue
+            Core.bitwise_or(keep, region, keep)
+            kept++
+        }
+        if (kept == 0) return 0
+        val grow = max(1, (3 * scale).roundToInt())
+        Imgproc.dilate(keep, keep, a.own(Mat.ones(2 * grow + 1, 2 * grow + 1, CvType.CV_8U)))
+        val kb = max(15, (15 * scale).roundToInt() or 1)
+        val blackhat = a.mat()
+        Imgproc.morphologyEx(grey, blackhat, Imgproc.MORPH_BLACKHAT, a.own(Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(kb.toDouble(), kb.toDouble()))))
+        val keepPx = ByteArray(n).also { keep.get(0, 0, it) }
+        val bhPx = ByteArray(n).also { blackhat.get(0, 0, it) }
+        for (i in 0 until n) {
+            if (keepPx[i].toInt() == 0) continue
+            if ((bhPx[i].toInt() and 255) > 35 || chroma[i] < 6f) keepPx[i] = 0
+        }
+        keep.put(0, 0, keepPx)
+        if (Core.countNonZero(keep) == 0) return 0
+        // Fill: the median paper colour in a ring around the blanked area.
+        val ringM = a.mat(); Imgproc.dilate(keep, ringM, a.own(Mat.ones(25, 25, CvType.CV_8U)))
+        val ringPx = ByteArray(n).also { ringM.get(0, 0, it) }
+        val greyPx = ByteArray(n).also { grey.get(0, 0, it) }
+        val ring = (0 until n).filter { ringPx[it].toInt() != 0 && keepPx[it].toInt() == 0 }
+        val rgbPx = ByteArray(n * 3).also { page.get(0, 0, it) }
+        val sample = if (ring.isNotEmpty()) {
+            val g = ring.map { greyPx[it].toInt() and 255 }.sorted()
+            val mid = if (g.size % 2 == 1) g[g.size / 2].toDouble() else (g[g.size / 2 - 1] + g[g.size / 2]) / 2.0
+            ring.filter { (greyPx[it].toInt() and 255) > mid }
+        } else emptyList()
+        val from = if (sample.size >= 20) sample else (0 until n).filter { keepPx[it].toInt() == 0 }
+        fun median(c: Int): Double {
+            val v = from.map { rgbPx[it * 3 + c].toInt() and 255 }.sorted()
+            return if (v.size % 2 == 1) v[v.size / 2].toDouble() else (v[v.size / 2 - 1] + v[v.size / 2]) / 2.0
+        }
+        page.setTo(Scalar(floor(median(0)), floor(median(1)), floor(median(2))), keep)
+        val parts = a.mat()
+        return Imgproc.connectedComponents(keep, parts) - 1
+    }
     /** Same-page fingerprint for batch capture (docs/TECH_UPGRADE_PLAN.md C4).
      * Port of evals/harness/eval_batch_helpers.py `fingerprint`: a grey copy
      * with a 1024 px long side (INTER_AREA), the central 80%, histogram
@@ -411,7 +502,8 @@ object OfflinePages {
         return parts
     }
     private data class Candidate(val bitmap: Bitmap,val features: Features,val score: Double,val time: Double)
-    private fun video(path: String,out: String,layout: String,cancel: AtomicBoolean,progress: (Int,Int)->Unit): Map<String,Any> {
+    private fun video(path: String,out: String,layout: String,cancel: AtomicBoolean,progress: (Int,Int)->Unit,
+                      fingers: Boolean = false): Map<String,Any> {
         require(layout in listOf("single","spread","auto")) { "Unknown book layout" }
         val decoder = MediaMetadataRetriever()
         val pages = mutableListOf<Map<String,Any>>()
@@ -440,6 +532,8 @@ object OfflinePages {
                     check(cancel)
                     val id = pages.size
                     val filename = "$out/capture_${id.toString().padStart(4,'0')}.jpg"
+                    val blanked = if (fingers) cleanFingers(image, arena) else 0
+                    if (blanked > 0) warnings.add("Page ${id + 1}: fingers at the page edge were blanked; check the margins.")
                     val page = bitmap(image)
                     try { save(page,filename) } finally { page.recycle() }
                     pages.add(mapOf("path" to filename,"width" to image.cols(),"height" to image.rows(),
@@ -517,7 +611,8 @@ object OfflinePages {
         check(OpenCVLoader.initLocal()) { "Bundled image engine could not load" }
         check(cancel)
         when(method) {
-            "video" -> return video(arg(args,"path"),arg(args,"out"),arg(args,"layout"),cancel,progress)
+            "video" -> return video(arg(args,"path"),arg(args,"out"),arg(args,"layout"),cancel,progress,
+                args["cleanFingers"] == true)
             "jpegInfo" -> return jpegInfo(arg(args,"path"))
             "captureQuality" -> return captureQuality(arg(args,"path"))
             "pageFingerprint" -> return pageFingerprint(arg(args,"path"))
@@ -555,6 +650,13 @@ object OfflinePages {
             val out = args["out"] as? String ?: path
             when(method) {
                 "dimensions" -> return dimensions(image,path)
+                "cleanFingers" -> Arena().use { arena ->
+                    val page = rgb(image, arena)
+                    val n = cleanFingers(page, arena)
+                    val result = bitmap(page)
+                    try { save(result, out); return dimensions(result, out) + mapOf("fingers" to n) }
+                    finally { result.recycle() }
+                }
                 "normalize" -> { save(image,out); return dimensions(image,out) }
                 "enhance", "digitCrop" -> Arena().use { arena ->
                     val input = rgb(image,arena)

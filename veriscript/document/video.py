@@ -40,6 +40,10 @@ class VideoOptions:
     max_pages: int = 150
     max_seconds: float = 600.0
     max_megapixels: float = 30.0
+    #: F3: blank fingers at page edges (fingers.py). Off by default: on drawn
+    #: fingers it blanks 85% of finger pixels and never changes ink, but it
+    #: also blanks small patches of colour print that reaches a page edge.
+    clean_fingers: bool = False
 
     def __post_init__(self):
         if self.layout not in {"auto", "single", "spread"}:
@@ -464,6 +468,10 @@ def extract_video_pages(path: str, out_dir: str, options: VideoOptions | None = 
         for side, image in split:
             page_id = len(pages)
             name = f"capture_{page_id:04d}.jpg"
+            cleaned = None
+            if options.clean_fingers:
+                from veriscript.document.fingers import clean_fingers
+                image, cleaned = clean_fingers(image)
             if not cv2.imwrite(str(Path(out_dir) / name), image,
                                [cv2.IMWRITE_JPEG_QUALITY, 95]):
                 raise OSError("Could not save captured page.")
@@ -475,7 +483,10 @@ def extract_video_pages(path: str, out_dir: str, options: VideoOptions | None = 
                           "width": image.shape[1], "height": image.shape[0],
                           "score": round(float(score), 2),
                           "cropped": page_cropped,
-                          "warnings": [] if page_cropped else ["Page boundary uncertain; full frame retained."]})
+                          "fingers_blanked": (cleaned or {}).get("fingers", 0),
+                          "warnings": ([] if page_cropped else ["Page boundary uncertain; full frame retained."])
+                          + (["Fingers at the page edge were blanked; check the margins."]
+                             if cleaned and cleaned["fingers"] else [])})
 
     try:
         if not cap.isOpened():

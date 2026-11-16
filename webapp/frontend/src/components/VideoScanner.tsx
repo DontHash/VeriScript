@@ -29,6 +29,7 @@ export function VideoScanner() {
   let videoInput: HTMLInputElement | undefined;
   const [file, setFile] = createSignal<File | null>(null);
   const [layout, setLayout] = createSignal("auto");
+  const [fingers, setFingers] = createSignal(false);
   const [lang, setLang] = createSignal("en");
   const [pdfKind, setPdfKind] = createSignal("clean");
   const [capture, setCapture] = createSignal<Capture | null>(null);
@@ -66,6 +67,7 @@ export function VideoScanner() {
     try {
       const body = new FormData();
       body.append("file", input); body.append("layout", layout());
+      body.append("clean_fingers", fingers() ? "1" : "0");
       const result: Capture = await responseJson(await fetch("/api/video-scan", { method: "POST", body }));
       setCapture(result); setOrder(result.pages.map((p) => p.id)); setExcluded([]);
       announce(`Found ${result.pages.length} pages. Review them below before exporting.`);
@@ -139,6 +141,16 @@ export function VideoScanner() {
         <option value="spread">Two-page spread (left, then right)</option>
         <option value="single">Single page</option>
       </select>
+    </div>
+    <div class="field">
+      <label class="checkbox">
+        <input type="checkbox" checked={fingers()} disabled={busy()} aria-describedby="video-fingers-hint"
+          onChange={(e) => { setFingers(e.currentTarget.checked); setCapture(null); invalidate(); }} />
+        <span>Remove fingers at page edges</span>
+      </label>
+      <span class="field__hint" id="video-fingers-hint">Blanks thumbs and fingers holding the book with
+        the paper colour; text is never changed. Pictures printed to the page edge can be blanked too,
+        so check the margins.</span>
     </div>
     <button class="btn btn--primary" type="button" disabled={!file() || busy()} onClick={() => void scan()}>
       {phase() === "capture" ? "Finding steady pages…" : "Find page frames"}

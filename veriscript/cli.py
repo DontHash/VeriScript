@@ -380,7 +380,8 @@ def run_video_mode(args) -> int:
     try:
         capture = extract_video_pages(args.input, args.output, VideoOptions(
             layout=args.video_layout, hold_seconds=args.video_hold,
-            max_pages=args.video_max_pages, max_seconds=args.video_max_seconds))
+            max_pages=args.video_max_pages, max_seconds=args.video_max_seconds,
+            clean_fingers=getattr(args, "video_clean_fingers", False)))
         print(f"[cli] captured {len(capture['pages'])} pages")
         for warning in capture["warnings"]:
             print(f"  review: {warning}")
@@ -571,6 +572,9 @@ def main():
                        help="export mode: clean pristine image PDF (default), "
                             "searchable image + invisible OCR layer, or digital "
                             "word-style text PDF re-typeset from OCR")
+    video.add_argument("--video-clean-fingers", action="store_true", dest="video_clean_fingers",
+                       help="blank fingers and thumbs at page edges (never text); "
+                            "off by default: it can also blank colour print at an edge")
     video.add_argument("--video-review-only", action="store_true",
                        help="save selected page images + capture.json without exporting a PDF")
     args = ap.parse_args()

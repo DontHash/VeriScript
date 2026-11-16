@@ -258,7 +258,7 @@ class _ReviewScreenState extends State<ReviewScreen> {
   }
 
   Future<void> video() async {
-    final options = await showModalBottomSheet<(String, String)>(
+    final options = await showModalBottomSheet<(String, String, bool)>(
       context: context,
       builder: (_) => const VideoOptionsSheet(),
     );
@@ -284,6 +284,7 @@ class _ReviewScreenState extends State<ReviewScreen> {
         'path': source.path,
         'out': '$dir/video_${DateTime.now().microsecondsSinceEpoch}',
         'layout': options.$2,
+        'cleanFingers': options.$3,
       });
       doc.warnings = [
         ...doc.warnings,

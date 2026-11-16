@@ -77,7 +77,8 @@ def register_video_routes(app, state):
 
     @app.post("/api/video-scan", dependencies=[Depends(require_auth)])
     async def scan(request: Request, file: UploadFile = File(...),
-                   layout: str = Form("auto")):
+                   layout: str = Form("auto"),
+                   clean_fingers: str = Form("0")):
         rate_limit(request)
         if layout not in {"auto", "single", "spread"}:
             raise HTTPException(400, "Choose auto, single, or spread layout.")
@@ -116,7 +117,8 @@ def register_video_routes(app, state):
                     upload, run_dir, VideoOptions(layout=layout,
                         max_pages=settings.video_max_pages,
                         max_seconds=settings.video_max_seconds,
-                        max_megapixels=settings.max_image_megapixels), cancel=cancel),
+                        max_megapixels=settings.max_image_megapixels,
+                        clean_fingers=clean_fingers == "1"), cancel=cancel),
                     cleanup=lambda: shutil.rmtree(run_dir, ignore_errors=True))
             except HTTPException as exc:
                 deferred_cleanup = exc.status_code == 504
