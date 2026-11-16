@@ -181,7 +181,7 @@ export function StudioPanel(props: { state: StudioState; compact?: boolean }) {
           >
             <option value="standard">Standard (sharp, compact)</option>
             <option value="small">Small (for email, 150 DPI)</option>
-            <option value="archive">Archive (original pixels, large)</option>
+            <option value="archive">Archive (PDF/A, original pixels, large)</option>
           </select>
           <p class="field__hint" id={`pdfsize-hint-${suffix}`}>
             The searchable text is the same in every size; only the page picture changes.

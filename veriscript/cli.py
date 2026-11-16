@@ -465,7 +465,8 @@ def main():
     doc.add_argument("--pdf-size", choices=["standard", "small", "archive"],
                      default="standard", dest="pdf_size",
                      help="searchable-PDF page images: standard (JPEG, full "
-                          "resolution), small (<=150 DPI) or archive (lossless); "
+                          "resolution), small (<=150 DPI) or archive (lossless, "
+                          "PDF/A-2b); "
                           "the text layer is the same in all three")
     doc.add_argument("--pdf-text", choices=["auto", "off"], default="auto",
                      dest="pdf_text",

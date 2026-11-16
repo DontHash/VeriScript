@@ -97,7 +97,8 @@ Useful knobs (all default to the measured best configuration):
 --no-reading-order           --rotate auto|off     --repass-digits/--no-repass-digits
 --digit-verifier off|bodhan  (optional second-model digit check)
 --pdf-size standard|small|archive  (searchable-PDF page images: JPEG at full
-                              resolution, <=150 DPI, or lossless; same text layer)
+                              resolution, <=150 DPI, or lossless PDF/A-2b; same
+                              text layer)
 --no-tables                  (skip <name>_tables.xlsx/.csv: detected tables as a
                               spreadsheet, uncertain cells highlighted + listed)
 --pdf-text auto|off          (PDF input: keep a page's own text when it is

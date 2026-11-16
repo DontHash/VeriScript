@@ -114,7 +114,8 @@ def _estimate_dpi(img: np.ndarray, dpi: Optional[int] = None) -> int:
 
 #: Page-image settings per PDF size preset (docs/TECH_UPGRADE_PLAN.md E3).
 #: The OCR text layer is identical in every preset; only the picture changes.
-#:   archive  - lossless (Flate), the original pixels
+#:   archive  - lossless (Flate), the original pixels, written as PDF/A-2b
+#:              (checked with veraPDF, docs/EXTERNAL_ASSETS.md)
 #:   standard - JPEG q85 at full resolution (default)
 #:   small    - JPEG q60, at most 150 DPI
 #: standard and small store near-grey pages as greyscale.
@@ -179,6 +180,92 @@ def write_searchable_pdf_pages(path: str, pages, title: Optional[str] = None,
     return path
 
 
+def _save_pdfa(c, title: str) -> None:
+    """Save canvas `c` as PDF/A-2b (docs/TECH_UPGRADE_PLAN.md E4).
+
+    reportlab writes valid PDF but not PDF/A. Three additions make the
+    searchable PDFs conform (veraPDF 1.30.4, PDF/A-2b profile):
+    * an XMP metadata stream that mirrors the document info exactly (6.6.2);
+    * an sRGB output intent, which also covers DeviceGray page images (6.2.4.3);
+    * an end-of-line before every `endstream` (6.1.7.1), applied only during
+      this save.
+    """
+    import datetime
+    from xml.sax.saxutils import escape
+
+    from PIL import ImageCms
+    from reportlab.pdfbase import pdfdoc
+
+    doc = c._doc
+    now = datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0)
+    pdf_date = now.strftime("D:%Y%m%d%H%M%S+00'00'")
+    xmp_date = now.strftime("%Y-%m-%dT%H:%M:%S+00:00")
+    info = doc.info
+    info.title = title
+    info.author = "VeriScript"
+    info.creator = "VeriScript"
+    info.producer = "VeriScript (ReportLab)"
+    info.subject = "Searchable scan"
+    info.keywords = ""
+    info._dateFormatter = lambda *_: pdf_date
+
+    xmp = f"""<?xpacket begin="﻿" id="W5M0MpCehiHzreSzNTczkc9d"?>
+<x:xmpmeta xmlns:x="adobe:ns:meta/">
+ <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+  <rdf:Description rdf:about=""
+    xmlns:dc="http://purl.org/dc/elements/1.1/"
+    xmlns:xmp="http://ns.adobe.com/xap/1.0/"
+    xmlns:pdf="http://ns.adobe.com/pdf/1.3/"
+    xmlns:pdfaid="http://www.aiim.org/pdfa/ns/id/">
+   <dc:format>application/pdf</dc:format>
+   <dc:title><rdf:Alt><rdf:li xml:lang="x-default">{escape(title)}</rdf:li></rdf:Alt></dc:title>
+   <dc:creator><rdf:Seq><rdf:li>{escape(info.author)}</rdf:li></rdf:Seq></dc:creator>
+   <dc:description><rdf:Alt><rdf:li xml:lang="x-default">{escape(info.subject)}</rdf:li></rdf:Alt></dc:description>
+   <xmp:CreatorTool>{escape(info.creator)}</xmp:CreatorTool>
+   <xmp:CreateDate>{xmp_date}</xmp:CreateDate>
+   <xmp:ModifyDate>{xmp_date}</xmp:ModifyDate>
+   <pdf:Producer>{escape(info.producer)}</pdf:Producer>
+   <pdf:Keywords></pdf:Keywords>
+   <pdfaid:part>2</pdfaid:part>
+   <pdfaid:conformance>B</pdfaid:conformance>
+  </rdf:Description>
+ </rdf:RDF>
+</x:xmpmeta>
+<?xpacket end="w"?>""".encode("utf-8")
+    metadata = pdfdoc.PDFStream(
+        pdfdoc.PDFDictionary({"Type": pdfdoc.PDFName("Metadata"),
+                              "Subtype": pdfdoc.PDFName("XML")}),
+        xmp, filters=[])
+    icc = ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB")).tobytes()
+    profile = pdfdoc.PDFStream(pdfdoc.PDFDictionary({"N": 3}), icc)
+    intent = pdfdoc.PDFDictionary({
+        "Type": pdfdoc.PDFName("OutputIntent"),
+        "S": pdfdoc.PDFName("GTS_PDFA1"),
+        "OutputConditionIdentifier": pdfdoc.PDFString("sRGB IEC61966-2.1"),
+        "Info": pdfdoc.PDFString("sRGB IEC61966-2.1"),
+        "DestOutputProfile": doc.Reference(profile),
+    })
+    catalog = doc.Catalog
+    catalog.Metadata = doc.Reference(metadata)
+    catalog.OutputIntents = pdfdoc.PDFArray([intent])
+    catalog.__NoDefault__ = list(catalog.__NoDefault__) + ["OutputIntents"]
+
+    original = pdfdoc.PDFStream.format
+
+    def with_eol(self, document):
+        out = original(self, document)
+        tail, fixed = b"endstream\n", b"\nendstream\n"
+        if out.endswith(tail) and not out.endswith(fixed):
+            out = out[:-len(tail)] + fixed
+        return out
+
+    pdfdoc.PDFStream.format = with_eol
+    try:
+        c.save()
+    finally:
+        pdfdoc.PDFStream.format = original
+
+
 class SearchablePdfWriter:
     """Add pages one at a time.
 
@@ -196,11 +283,13 @@ class SearchablePdfWriter:
         if size not in PDF_SIZES:
             raise ValueError(f"unknown PDF size {size!r}; use one of {sorted(PDF_SIZES)}")
         self.size = size
+        self.pdfa = size == "archive"
         self.path = path
         self._part = path + ".part"
         os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
         self._canvas = canvas.Canvas(self._part)
-        self._canvas.setTitle(title or os.path.splitext(os.path.basename(path))[0])
+        self.title = title or os.path.splitext(os.path.basename(path))[0]
+        self._canvas.setTitle(self.title)
         self._font = unicode_pdf_font() or "Helvetica"
         self.pages = 0
 
@@ -238,7 +327,10 @@ class SearchablePdfWriter:
         self.pages += 1
 
     def close(self) -> str:
-        self._canvas.save()
+        if self.pdfa:
+            _save_pdfa(self._canvas, self.title)
+        else:
+            self._canvas.save()
         os.replace(self._part, self.path)
         return self.path
 

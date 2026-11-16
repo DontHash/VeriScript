@@ -113,3 +113,24 @@ def test_studio_passes_the_preset(tmp_path, monkeypatch):
                         files={"file": ("p.png", buf.getvalue(), "image/png")})
         assert r.status_code == 200, r.text
         assert seen["pdf_size"] == used and r.json()["meta"]["pdf_size"] == used
+
+
+def test_archive_preset_is_pdfa_2b():
+    """E4: archive PDFs pass veraPDF's PDF/A-2b profile (local tool;
+    skipped where it is not installed, see docs/EXTERNAL_ASSETS.md)."""
+    sys.path.insert(0, os.path.join(BASE_DIR, "scripts"))
+    import check_pdfa
+
+    if not os.path.isfile(check_pdfa.verapdf()):
+        pytest.skip("veraPDF not installed")
+    assert check_pdfa.main([]) == 0
+
+
+def test_archive_text_still_extracts(tmp_path):
+    path = write_searchable_pdf(str(tmp_path / "a.pdf"), _page(), TOKENS, size="archive",
+                                title="Ward 7 record")
+    doc = pdfium.PdfDocument(path)
+    assert "12,500.75" in doc[0].get_textpage().get_text_range()
+    assert doc.get_metadata_dict()["Title"] == "Ward 7 record"
+    raw = open(path, "rb").read()
+    assert b"/OutputIntents" in raw and b"pdfaid:part>2<" in raw
