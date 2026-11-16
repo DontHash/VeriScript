@@ -63,10 +63,13 @@ class MainActivity : FlutterActivity() {
                 worker.execute {
                     try {
                         val args = call.arguments as? Map<*, *> ?: emptyMap<Any, Any>()
-                        val output = if (call.method == "rapidOcr" || call.method == "rapidOcrLine") {
+                        val output = if (call.method in setOf("rapidOcr", "rapidOcrLine", "cutOff")) {
                             val reader = rapidOcr ?: RapidOcr(applicationContext).also { rapidOcr = it }
-                            if (call.method == "rapidOcr") reader.run(args, cancelled)
-                            else reader.readLine(args, cancelled)
+                            when (call.method) {
+                                "rapidOcr" -> reader.run(args, cancelled)
+                                "cutOff" -> reader.cutOff(args, cancelled)
+                                else -> reader.readLine(args, cancelled)
+                            }
                         } else OfflinePages.run(call.method, args, cancelled) { done, total ->
                             runOnUiThread { channel.invokeMethod("progress", mapOf("done" to done, "total" to total)) }
                         }

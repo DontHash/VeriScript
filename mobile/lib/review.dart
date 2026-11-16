@@ -128,12 +128,13 @@ class _ReviewScreenState extends State<ReviewScreen> {
             if (doc.pages.length >= 150) {
               throw StateError('150-page limit reached.');
             }
-            await widget.store.importImage(
+            final page = await widget.store.importImage(
               doc,
               path,
               align: false,
               enhance: false,
             );
+            return () => widget.store.removePage(doc, page);
           },
         ),
       ),
@@ -446,13 +447,17 @@ class _ReviewScreenState extends State<ReviewScreen> {
             ListTile(
               leading: const Icon(Icons.ios_share),
               title: const Text('Share'),
-              subtitle: const Text('Send to another app, such as email or messages.'),
+              subtitle: const Text(
+                'Send to another app, such as email or messages.',
+              ),
               onTap: () => Navigator.pop(context, 'share'),
             ),
             ListTile(
               leading: const Icon(Icons.save_alt),
               title: const Text('Save to…'),
-              subtitle: const Text('Choose a folder on this phone, a memory card or a USB drive.'),
+              subtitle: const Text(
+                'Choose a folder on this phone, a memory card or a USB drive.',
+              ),
               onTap: () => Navigator.pop(context, 'save'),
             ),
             const SizedBox(height: 8),
@@ -512,13 +517,17 @@ class _ReviewScreenState extends State<ReviewScreen> {
         title.trim(),
         progress: (done, total) => setState(() => fraction = done / total),
       );
-      message('Moved ${countLabel(pages.length, 'page')} to “${created.title}”.');
+      message(
+        'Moved ${countLabel(pages.length, 'page')} to “${created.title}”.',
+      );
     });
   }
 
   /// E5 combine: copies of another document's pages are added at the end.
   Future<void> addFromDocument() async {
-    final others = (await widget.store.list()).where((d) => d.id != doc.id).toList();
+    final others = (await widget.store.list())
+        .where((d) => d.id != doc.id)
+        .toList();
     if (!mounted) return;
     if (others.isEmpty) {
       message('There is no other document to add pages from.');
@@ -557,7 +566,9 @@ class _ReviewScreenState extends State<ReviewScreen> {
         doc,
         progress: (done, total) => setState(() => fraction = done / total),
       );
-      message('Added ${countLabel(source.pages.length, 'page')} from “${source.title}”.');
+      message(
+        'Added ${countLabel(source.pages.length, 'page')} from “${source.title}”.',
+      );
     });
   }
 

@@ -27,6 +27,26 @@ Future<CaptureQuality> readCaptureQuality(String path) async {
   return CaptureQuality.fromMap(map);
 }
 
+/// "Page cut off" (C3): text lines touching each edge of the photo, from the
+/// bundled text detector. Slower than blur and glare (seconds on the
+/// emulator), so the capture screen runs it after the photo is kept.
+Future<Map<String, dynamic>> readCutOff(String path) async {
+  final sides = await native.invokeMapMethod<String, dynamic>('cutOff', {
+    'path': path,
+  });
+  if (sides == null) throw StateError('No cut-off check was returned.');
+  return sides;
+}
+
+/// Native same-page fingerprint for a just-captured photo (C4).
+Future<String> readPageFingerprint(String path) async {
+  final hash = await native.invokeMethod<String>('pageFingerprint', {
+    'path': path,
+  });
+  if (hash == null) throw StateError('No fingerprint was returned.');
+  return hash;
+}
+
 class ScanPage {
   ScanPage({
     required this.id,
@@ -180,8 +200,9 @@ class DocumentStore {
   static String _baseName(String path) => path.split(_separator).last;
 
   /// In-memory absolute path → stored form.
-  static String packPath(String dir, String path) =>
-      path.startsWith('$dir/') ? '$_local${path.substring(dir.length + 1)}' : path;
+  static String packPath(String dir, String path) => path.startsWith('$dir/')
+      ? '$_local${path.substring(dir.length + 1)}'
+      : path;
 
   /// Stored form → absolute path in this document's folder.
   static String unpackPath(String dir, String path) {
@@ -219,6 +240,7 @@ class DocumentStore {
     }
     return json;
   }
+
   Future<void> _writes = Future.value();
   static Future<DocumentStore> open() async {
     final base = await getApplicationDocumentsDirectory();
@@ -341,7 +363,8 @@ class DocumentStore {
   /// Copy [page] and its files from folder [from] into [to] under a new id,
   /// so the same page can be copied more than once without clashing.
   Future<ScanPage> _copyPage(ScanPage page, String from, String to) async {
-    final id = '${_lastId = max(_lastId + 1, DateTime.now().microsecondsSinceEpoch)}';
+    final id =
+        '${_lastId = max(_lastId + 1, DateTime.now().microsecondsSinceEpoch)}';
     final named = RegExp('_${RegExp.escape(page.id)}(?=[._])');
     final moved = <String, String>{};
     for (final f in await _pageFiles(from, page)) {
@@ -354,12 +377,9 @@ class DocumentStore {
       await File(f).copy(target);
       moved[f] = target;
     }
-    final json = mapPaths(
-      {
-        'pages': [jsonDecode(jsonEncode(page.toJson()))],
-      },
-      (p) => moved[p] ?? p,
-    );
+    final json = mapPaths({
+      'pages': [jsonDecode(jsonEncode(page.toJson()))],
+    }, (p) => moved[p] ?? p);
     final copy = Map<String, dynamic>.from((json['pages'] as List).single);
     copy['id'] = id;
     return ScanPage.fromJson(copy);
@@ -423,6 +443,23 @@ class DocumentStore {
       } catch (_) {}
     }
     return created;
+  }
+
+  /// Removes [page] from [doc] and deletes its files, unless another page
+  /// still uses one (C4: a sharper shot of the same page replaces it).
+  Future<void> removePage(ScanDocument doc, ScanPage page) async {
+    final dir = directory(doc);
+    final files = await _pageFiles(dir, page);
+    doc.pages.removeWhere((p) => p.id == page.id);
+    await save(doc);
+    for (final p in doc.pages) {
+      files.removeAll(await _pageFiles(dir, p));
+    }
+    for (final f in files) {
+      try {
+        await File(f).delete();
+      } catch (_) {}
+    }
   }
 
   Future<ScanPage> importImage(

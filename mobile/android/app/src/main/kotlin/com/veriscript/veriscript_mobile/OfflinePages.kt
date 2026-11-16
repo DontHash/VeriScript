@@ -129,6 +129,34 @@ object OfflinePages {
         mapOf("sharpness" to sharpness, "lapvar" to lapVar, "glare" to largest / n,
               "width" to small.cols(), "height" to small.rows())
     }
+    /** Same-page fingerprint for batch capture (docs/TECH_UPGRADE_PLAN.md C4).
+     * Port of evals/harness/eval_batch_helpers.py `fingerprint`: a grey copy
+     * with a 1024 px long side (INTER_AREA), the central 80%, histogram
+     * equalised, then a 16x16 difference hash as 64 hex digits. */
+    private fun pageFingerprint(path: String): String = Arena().use { a ->
+        val bitmap = load(path, maxSide = 5000)
+        val g8: Mat
+        try { g8 = gray(rgb(bitmap, a), a) } finally { bitmap.recycle() }
+        val scale = 1024.0 / max(g8.cols(), g8.rows())
+        val small = if (scale < 1) a.mat().also {
+            Imgproc.resize(g8, it, Size(), scale, scale, Imgproc.INTER_AREA)
+        } else g8
+        val h = small.rows(); val w = small.cols()
+        val y0 = (h * 0.1).toInt(); val x0 = (w * 0.1).toInt()
+        val centre = a.own(small.submat(Rect(x0, y0, w - 2 * x0, h - 2 * y0)))
+        val eq = a.mat(); Imgproc.equalizeHist(centre, eq)
+        val grid = a.mat(); Imgproc.resize(eq, grid, Size(17.0, 16.0), 0.0, 0.0, Imgproc.INTER_AREA)
+        val v = ByteArray(17 * 16).also { grid.get(0, 0, it) }
+        val out = StringBuilder()
+        var nibble = 0
+        for (i in 0 until 256) {
+            val r = i / 16; val c = i % 16
+            val bit = if ((v[r * 17 + c + 1].toInt() and 255) > (v[r * 17 + c].toInt() and 255)) 1 else 0
+            nibble = (nibble shl 1) or bit
+            if (i % 4 == 3) { out.append("0123456789abcdef"[nibble]); nibble = 0 }
+        }
+        out.toString()
+    }
     /** Longest side kept through import, alignment and enhancement.
      * 4096 keeps a 12 MP photo (4032x3024) at full size: an A4 page filling
      * the frame stays near 300 DPI. The old 2500 px limit left about 170 DPI
@@ -492,6 +520,7 @@ object OfflinePages {
             "video" -> return video(arg(args,"path"),arg(args,"out"),arg(args,"layout"),cancel,progress)
             "jpegInfo" -> return jpegInfo(arg(args,"path"))
             "captureQuality" -> return captureQuality(arg(args,"path"))
+            "pageFingerprint" -> return pageFingerprint(arg(args,"path"))
             "textPdf" -> { textPdf(arg(args,"out"),arg(args,"title"),(args["pages"] as List<*>).map { it as String },cancel); return null }
             "pdfInfo", "pdfPage" -> {
                 ParcelFileDescriptor.open(File(arg(args,"path")),ParcelFileDescriptor.MODE_READ_ONLY).use { fd ->

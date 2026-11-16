@@ -17,13 +17,16 @@ void main() {
     final files = dir.existsSync()
         ? (dir.listSync().whereType<File>().toList()..sort((a, b) => a.path.compareTo(b.path)))
         : <File>[];
-    final out = <String, Map<String, double>>{};
+    final out = <String, Map<String, Object?>>{};
     for (final f in files) {
       final clock = Stopwatch()..start();
       final q = await readCaptureQuality(f.path);
+      final cut = await native.invokeMapMethod<String, dynamic>('cutOff', {'path': f.path});
+      final hash = await readPageFingerprint(f.path);
       out[f.uri.pathSegments.last] = {
         'sharpness': q.sharpness, 'lapvar': q.lapVar, 'glare': q.glare,
         'seconds': clock.elapsedMilliseconds / 1000,
+        'cut': cut, 'hash': hash,
       };
     }
     // ignore: avoid_print

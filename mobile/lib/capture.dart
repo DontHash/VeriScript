@@ -38,6 +38,49 @@ Future<bool> keepAfterQualityCheck(
   return retake != true;
 }
 
+/// What to do when a new photo looks like the previous one (C4).
+enum SamePageChoice { keepSharper, keepBoth }
+
+/// Asks whether a photo that looks like the previous one is the same page
+/// again. [newIsSharper] says which of the two the C3 sharpness prefers.
+/// Closing the prompt keeps both: never lose a capture.
+Future<SamePageChoice> askSamePage(
+  BuildContext context, {
+  required bool newIsSharper,
+}) async {
+  final choice = await showDialog<SamePageChoice>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Text('Same page again?'),
+      content: Text(
+        newIsSharper
+            ? 'This photo looks like the previous one, and it is sharper. '
+                  'Keep only this one?'
+            : 'This photo looks like the previous one, which is sharper. '
+                  'Keep only the previous one?',
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context, SamePageChoice.keepBoth),
+          child: const Text('Keep both'),
+        ),
+        // No default focus: a different page can look alike (3% of
+        // different documents in the evaluation), so replacing is a
+        // deliberate tap.
+        FilledButton(
+          onPressed: () => Navigator.pop(context, SamePageChoice.keepSharper),
+          child: const Text('Keep the sharper one'),
+        ),
+      ],
+    ),
+  );
+  return choice ?? SamePageChoice.keepBoth;
+}
+
+/// Removes a page that [CaptureScreen.onPhoto] added (C4: a sharper shot of
+/// the same page replaces it).
+typedef RemovePhoto = Future<void> Function();
+
 class CaptureScreen extends StatefulWidget {
   const CaptureScreen({
     super.key,
@@ -46,7 +89,9 @@ class CaptureScreen extends StatefulWidget {
     this.recordMode = false,
   });
   final int count;
-  final Future<void> Function(String path)? onPhoto;
+
+  /// Adds the photo; may return a way to remove it again.
+  final Future<RemovePhoto?> Function(String path)? onPhoto;
   final bool recordMode;
   @override
   State<CaptureScreen> createState() => _CaptureScreenState();
@@ -57,6 +102,13 @@ class _CaptureScreenState extends State<CaptureScreen>
   CameraController? camera;
   String? error;
   bool saving = false, recording = false;
+  // The last kept photo of this batch (C4): fingerprint, sharpness, removal.
+  String? lastHash;
+  double? lastSharpness;
+  RemovePhoto? removeLast;
+  // C3 "page cut off" runs while the next page is framed; the next shot
+  // waits for it (the native worker does one job at a time).
+  Future<void> pendingCut = Future.value();
   int added = 0, seconds = 0;
   Timer? timer;
   @override
@@ -172,6 +224,49 @@ class _CaptureScreenState extends State<CaptureScreen>
     }
   }
 
+  /// Offers a retake when text runs off an edge of the photo (C3). Advisory,
+  /// and never blocks: a failed check says nothing.
+  Future<void> _checkCut(String path, RemovePhoto? removal, int number) async {
+    try {
+      final sides = await readCutOff(path);
+      const fine = CaptureQuality(sharpness: 1, lapVar: 1e9, glare: 0);
+      if (!fine.withCutOff(sides).cutOff || !mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          duration: const Duration(seconds: 8),
+          content: Text(
+            'Photo $number: part of the page seems to be outside the photo.',
+          ),
+          action: removal == null
+              ? null
+              : SnackBarAction(
+                  label: 'Retake',
+                  onPressed: () async {
+                    await removal();
+                    if (removeLast == removal) {
+                      removeLast = null;
+                      lastHash = null;
+                      lastSharpness = null;
+                    }
+                    if (mounted) setState(() => added--);
+                  },
+                ),
+        ),
+      );
+    } catch (e) {
+      debugPrint('Could not check for a cut-off page: $e');
+    }
+  }
+
+  Future<String?> _readHash(String path) async {
+    try {
+      return await readPageFingerprint(path);
+    } catch (e) {
+      debugPrint('Could not fingerprint capture: $e');
+      return null;
+    }
+  }
+
   Future<CaptureInfo?> _readInfo(String path) async {
     try {
       return await readCaptureInfo(path);
@@ -260,6 +355,7 @@ class _CaptureScreenState extends State<CaptureScreen>
     }
     setState(() => saving = true);
     try {
+      await pendingCut;
       final path = await _validatedPhotoPath();
       // C3: blur and glare are advisory. Retake discards this photo; Keep
       // (or closing the prompt) adds it as it is.
@@ -270,10 +366,49 @@ class _CaptureScreenState extends State<CaptureScreen>
         } catch (_) {}
         return;
       }
-      await widget.onPhoto!(path);
+      // C4: the same page shot twice keeps the sharper photo (if asked).
+      final hash = await _readHash(path);
+      final sharpness = quality?.sharpness;
+      var replaced = false;
+      if (mounted &&
+          samePage(lastHash, hash) &&
+          sharpness != null &&
+          lastSharpness != null) {
+        final newIsSharper = sharpness >= lastSharpness!;
+        final choice = await askSamePage(context, newIsSharper: newIsSharper);
+        if (choice == SamePageChoice.keepSharper) {
+          if (!newIsSharper) {
+            try {
+              await File(path).delete();
+            } catch (_) {}
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Kept the previous, sharper photo.'),
+                ),
+              );
+            }
+            return;
+          }
+          final remove = removeLast;
+          if (remove != null) {
+            await remove();
+            replaced = true;
+          }
+        }
+      }
+      final removal = await widget.onPhoto!(path);
+      pendingCut = _checkCut(
+        path,
+        removal,
+        widget.count + added + (replaced ? 0 : 1),
+      );
+      lastHash = hash;
+      lastSharpness = sharpness;
+      removeLast = removal;
       if (mounted) {
         unawaited(HapticFeedback.mediumImpact());
-        setState(() => added++);
+        if (!replaced) setState(() => added++);
       }
     } catch (e) {
       if (mounted) {

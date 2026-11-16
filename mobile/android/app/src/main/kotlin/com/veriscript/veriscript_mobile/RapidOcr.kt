@@ -169,13 +169,21 @@ class RapidOcr(private val context: Context) : AutoCloseable {
         return cls[1]
     }
 
-    private fun recognize(crops: List<Mat>, english: Boolean, cancel: AtomicBoolean): List<Triple<String,Double,Boolean>> {
+    /** One recognised line. [words] are (text, start, end, confidence) with
+     * start/end as fractions of the crop's width, from the CTC time steps
+     * where each word's first and last characters were emitted
+     * (docs/TECH_UPGRADE_PLAN.md D5; RapidOCR's own word boxes work the same way). */
+    private data class Read(val text: String, val confidence: Double, val flipped: Boolean,
+                            val words: List<Word> = emptyList())
+    private data class Word(val text: String, val start: Double, val end: Double, val confidence: Double)
+
+    private fun recognize(crops: List<Mat>, english: Boolean, cancel: AtomicBoolean): List<Read> {
         val rec = session(if (english) "PP-OCRv6_rec_small.onnx" else "devanagari_PP-OCRv5_rec_mobile.onnx")
         // Python splitlines() ignores a terminal newline and CRLF delimiters.
         val dictionary = rec.metadata.customMetadata["character"]!!
             .trimEnd('\r', '\n').split(Regex("\\r?\\n"))
         val alphabet = listOf("") + dictionary + listOf(" ")
-        val results = MutableList(crops.size) { Triple("",0.0,false) }
+        val results = MutableList(crops.size) { Read("",0.0,false) }
         val flipped = BooleanArray(crops.size)
         for (batch in crops.indices.sortedBy { crops[it].cols().toDouble()/crops[it].rows() }.chunked(6)) {
             check(cancel)
@@ -183,6 +191,7 @@ class RapidOcr(private val context: Context) : AutoCloseable {
                 val width = (48 * max(320.0/48, batch.maxOf { crops[it].cols().toDouble()/crops[it].rows() })).toInt()
                 require(width <= 16384) { "Text line is too wide; crop it first" }
                 val input = FloatArray(batch.size * 3 * 48 * width)
+                val used = IntArray(batch.size)
                 for ((b,index) in batch.withIndex()) {
                     val image = crops[index]
                     if (english) {
@@ -192,6 +201,7 @@ class RapidOcr(private val context: Context) : AutoCloseable {
                         }
                     }
                     val resizedW = min(width, ceil(48.0*image.cols()/image.rows()).toInt())
+                    used[b] = resizedW
                     val pixels = tensor(image,48,resizedW,a)
                     for(c in 0..2) for(y in 0 until 48)
                         System.arraycopy(pixels,c*48*resizedW+y*resizedW,input,b*3*48*width+c*48*width+y*width,resizedW)
@@ -201,6 +211,15 @@ class RapidOcr(private val context: Context) : AutoCloseable {
                     require(chars == alphabet.size) { "OCR dictionary does not match model" }
                     for ((b,index) in batch.withIndex()) {
                         val text = StringBuilder(); var confidence = 0.0; var count = 0; var last = -1
+                        val words = mutableListOf<Word>()
+                        val word = StringBuilder(); var wordStart = 0; var wordEnd = 0; var wordConf = 0.0; var wordCount = 0
+                        // Time step t covers tensor columns t..t+1 of `steps`; the line
+                        // image fills the first used[b] of `width` columns.
+                        fun at(step: Int) = (step.toDouble() / steps * width / used[b]).coerceIn(0.0, 1.0)
+                        fun endWord() {
+                            if (word.isNotEmpty()) words.add(Word(word.toString(), at(wordStart), at(wordEnd + 1), wordConf / wordCount))
+                            word.clear(); wordConf = 0.0; wordCount = 0
+                        }
                         for (t in 0 until steps) {
                             val offset = (b*steps+t)*chars
                             var best = 0
@@ -210,11 +229,17 @@ class RapidOcr(private val context: Context) : AutoCloseable {
                                 if(value>bestValue) { best=c; bestValue=value }
                             }
                             if(best != 0 && best != last) {
-                                text.append(alphabet[best]); confidence += bestValue; count++
-                            }
+                                val ch = alphabet[best]
+                                text.append(ch); confidence += bestValue; count++
+                                if (ch.isBlank()) endWord() else {
+                                    if (word.isEmpty()) wordStart = t
+                                    word.append(ch); wordEnd = t; wordConf += bestValue; wordCount++
+                                }
+                            } else if (best != 0 && word.isNotEmpty()) wordEnd = t
                             last=best
                         }
-                        results[index] = Triple(text.toString(), if(count>0) confidence/count else 0.0, flipped[index])
+                        endWord()
+                        results[index] = Read(text.toString(), if(count>0) confidence/count else 0.0, flipped[index], words)
                     }
                 }
             }
@@ -230,8 +255,34 @@ class RapidOcr(private val context: Context) : AutoCloseable {
             val image = a.own(Imgcodecs.imread(args["path"] as String))
             require(!image.empty()) { "Unable to read OCR image" }
             if (image.rows().toDouble() / image.cols() >= 1.5) Core.rotate(image, image, Core.ROTATE_90_COUNTERCLOCKWISE)
-            val (text, confidence, _) = recognize(listOf(image), args["language"] == "en", cancel).single()
-            mapOf("text" to text, "confidence" to confidence)
+            val read = recognize(listOf(image), args["language"] == "en", cancel).single()
+            mapOf("text" to read.text, "confidence" to read.confidence)
+        }
+    }
+
+    /** "Page cut off" check at capture (docs/TECH_UPGRADE_PLAN.md C3).
+     * Port of evals/harness/eval_cutoff.py: text detection only, on a copy
+     * with a 1024 px long side (INTER_AREA); per side, the number of text
+     * boxes within 1% of the frame edge. */
+    fun cutOff(args: Map<*, *>, cancel: AtomicBoolean): Map<String, Any> {
+        check(OpenCVLoader.initLocal()) { "OpenCV unavailable" }
+        return Arena().use { a ->
+            val original = a.own(Imgcodecs.imread(args["path"] as String))
+            require(!original.empty()) { "Unable to read the photo" }
+            val scale = 1024.0 / max(original.cols(), original.rows())
+            val image = if (scale < 1) a.mat().also {
+                Imgproc.resize(original, it, Size(), scale, scale, Imgproc.INTER_AREA)
+            } else original
+            val boxes = detect(image, cancel)
+            val mx = .01 * image.cols(); val my = .01 * image.rows()
+            var left = 0; var top = 0; var right = 0; var bottom = 0
+            for (box in boxes) {
+                if (box.minOf { it.x } <= mx) left++
+                if (box.minOf { it.y } <= my) top++
+                if (box.maxOf { it.x } >= image.cols() - 1 - mx) right++
+                if (box.maxOf { it.y } >= image.rows() - 1 - my) bottom++
+            }
+            mapOf("left" to left, "top" to top, "right" to right, "bottom" to bottom)
         }
     }
 
@@ -276,7 +327,7 @@ class RapidOcr(private val context: Context) : AutoCloseable {
             }
             val texts = recognize(crops,args["language"]=="en",cancel)
             check(cancel)
-            boxes.indices.filter { texts[it].second >= .5 && texts[it].first.isNotEmpty() }.map { i ->
+            boxes.indices.filter { texts[it].confidence >= .5 && texts[it].text.isNotEmpty() }.map { i ->
                 val p=boxes[i]
                 val x=(p.minOf { it.x } * ratioW).coerceIn(0.0, original.cols().toDouble())
                 val y=((p.minOf { it.y } - padding) * ratioH).coerceIn(0.0, original.rows().toDouble())
@@ -288,11 +339,25 @@ class RapidOcr(private val context: Context) : AutoCloseable {
                 // orientation selector, even when the recognizer reads them.
                 val angle = Math.toDegrees(atan2(p[1].y-p[0].y,p[1].x-p[0].x)) +
                     (if (height / width >= 1.5) 90.0 else 0.0) +
-                    (if (texts[i].third) 180.0 else 0.0)
-                mapOf("text" to texts[i].first, "confidence" to texts[i].second,
+                    (if (texts[i].flipped) 180.0 else 0.0)
+                // Word boxes along the line's top and bottom edges. Vertical
+                // crops (turned before reading) keep the line box only.
+                val words = if (height / width >= 1.5) emptyList() else texts[i].words.map { w ->
+                    val f0 = if (texts[i].flipped) 1 - w.end else w.start
+                    val f1 = if (texts[i].flipped) 1 - w.start else w.end
+                    fun along(a: Point, b: Point, f: Double) = Point(a.x + (b.x - a.x) * f, a.y + (b.y - a.y) * f)
+                    val q = listOf(along(p[0], p[1], f0), along(p[0], p[1], f1), along(p[3], p[2], f1), along(p[3], p[2], f0))
+                    val wx = (q.minOf { it.x } * ratioW).coerceIn(0.0, original.cols().toDouble())
+                    val wy = ((q.minOf { it.y } - padding) * ratioH).coerceIn(0.0, original.rows().toDouble())
+                    val wr = (q.maxOf { it.x } * ratioW).coerceIn(wx, original.cols().toDouble())
+                    val wb = ((q.maxOf { it.y } - padding) * ratioH).coerceIn(wy, original.rows().toDouble())
+                    mapOf("text" to w.text, "confidence" to w.confidence, "bbox" to listOf(wx, wy, wr - wx, wb - wy))
+                }
+                mapOf("text" to texts[i].text, "confidence" to texts[i].confidence,
                     "bbox" to listOf(x,y,right-x,bottom-y),
                     "angle" to angle,
-                    "backend" to "rapidocr-3.9.2-port")
+                    "backend" to "rapidocr-3.9.2-port",
+                    "words" to words)
             }
         }
     }
