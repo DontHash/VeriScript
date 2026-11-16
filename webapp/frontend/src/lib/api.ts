@@ -194,6 +194,18 @@ export async function correctRun(
   return (await res.json()) as CorrectResponse;
 }
 
+/** E5: a password-protected (AES-256) copy of one of the run's PDFs.
+ *  The server builds it in memory and keeps neither the copy nor the password. */
+export async function protectPdf(runId: string, file: string, password: string): Promise<Blob> {
+  const res = await request(`/api/runs/${runId}/protect`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ file, password }),
+  });
+  if (!res.ok) throw await parseError(res);
+  return await res.blob();
+}
+
 /** Explicit, privacy-first training export: only `share` indices are packed. */
 export async function exportRunCorrections(
   runId: string,

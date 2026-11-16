@@ -162,14 +162,15 @@ def _page_image(image_bgr: np.ndarray, dpi: int, size: str):
 
 
 def write_searchable_pdf_pages(path: str, pages, title: Optional[str] = None,
-                               size: str = DEFAULT_PDF_SIZE) -> str:
+                               size: str = DEFAULT_PDF_SIZE,
+                               password: Optional[str] = None) -> str:
     """Multi-page searchable PDF: one (image_bgr, tokens, dpi|None) per page.
 
     Each page keeps its own size (derived from pixels + dpi), so mixed-size
     inputs stay honest. Per-page artifacts are unaffected; this is the
     combined output for multi-page PDF inputs (P6).
     """
-    writer = SearchablePdfWriter(path, title=title, size=size)
+    writer = SearchablePdfWriter(path, title=title, size=size, password=password)
     try:
         for image_bgr, tokens, dpi in pages:
             writer.add_page(image_bgr, tokens, dpi)
@@ -277,11 +278,18 @@ class SearchablePdfWriter:
     """
 
     def __init__(self, path: str, title: Optional[str] = None,
-                 size: str = DEFAULT_PDF_SIZE) -> None:
+                 size: str = DEFAULT_PDF_SIZE, password: Optional[str] = None) -> None:
         from reportlab.pdfgen import canvas
 
         if size not in PDF_SIZES:
             raise ValueError(f"unknown PDF size {size!r}; use one of {sorted(PDF_SIZES)}")
+        if password:
+            from veriscript.document.protect import PasswordError, check_password
+            if size == "archive":
+                raise PasswordError("Archive PDFs (PDF/A) cannot have a password; "
+                                    "choose the standard or small size.")
+            check_password(password)
+        self._password = password or None
         self.size = size
         self.pdfa = size == "archive"
         self.path = path
@@ -331,6 +339,14 @@ class SearchablePdfWriter:
             _save_pdfa(self._canvas, self.title)
         else:
             self._canvas.save()
+        if self._password:
+            # E5: AES-256 (revision 6); the unprotected part file is removed.
+            from veriscript.document.protect import protect_pdf
+            try:
+                protect_pdf(self._part, self.path, self._password)
+            finally:
+                self.discard()
+            return self.path
         os.replace(self._part, self.path)
         return self.path
 
@@ -344,9 +360,11 @@ class SearchablePdfWriter:
 def write_searchable_pdf(path: str, image_bgr: np.ndarray, tokens: List[Token],
                          dpi: Optional[int] = None,
                          size: str = DEFAULT_PDF_SIZE,
-                         title: Optional[str] = None) -> str:
+                         title: Optional[str] = None,
+                         password: Optional[str] = None) -> str:
     """Image page + invisible, selectable text at token boxes."""
-    return write_searchable_pdf_pages(path, [(image_bgr, tokens, dpi)], title=title, size=size)
+    return write_searchable_pdf_pages(path, [(image_bgr, tokens, dpi)], title=title, size=size,
+                                      password=password)
 
 
 def _tok_color(tok: Token):
@@ -555,6 +573,7 @@ def export_document_outputs(out_dir: str, stem: str, image_bgr: np.ndarray,
                             make_md: bool = True,
                             overlay_source: Optional[np.ndarray] = None,
                             pdf_size: str = DEFAULT_PDF_SIZE,
+                            pdf_password: Optional[str] = None,
                             title: Optional[str] = None) -> Dict[str, str]:
     """Write the product outputs. `overlay_source` lets the caller draw boxes on
     the restored/display image instead of the raw input."""
@@ -563,7 +582,8 @@ def export_document_outputs(out_dir: str, stem: str, image_bgr: np.ndarray,
     if make_pdf:
         written["pdf"] = write_searchable_pdf(os.path.join(out_dir, f"{stem}.pdf"),
                                               image_bgr, result.tokens, dpi=dpi,
-                                              size=pdf_size, title=title)
+                                              size=pdf_size, title=title,
+                                              password=pdf_password)
     if make_overlay:
         written["overlay"] = write_overlay_png(os.path.join(out_dir, f"{stem}_overlay.png"),
                                                overlay_source if overlay_source is not None else image_bgr,

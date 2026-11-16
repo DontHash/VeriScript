@@ -538,6 +538,44 @@ def create_app() -> FastAPI:
             headers={"Cache-Control": "private, max-age=300"},
         )
 
+    @app.post("/api/runs/{run_id}/protect", dependencies=[Depends(require_auth)])
+    async def protect_file(run_id: str, body: Dict[str, Any] = Body(...)) -> Response:
+        """A password-protected copy of one of the run's PDFs (E5).
+
+        AES-256 (revision 6). The copy is built in memory and returned; it
+        and the password are never written into the run or any log."""
+        import tempfile
+
+        from veriscript.document.protect import PasswordError, protect_pdf
+
+        name = body.get("file")
+        password = body.get("password")
+        if (name not in PUBLIC_FILES or PUBLIC_FILES[name]["media"] != "application/pdf"
+                or not isinstance(password, str)):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                                detail="Choose one of this result's PDFs and a password.")
+        path = store.resolve_file(run_id, name)
+        if store.read_manifest(run_id) is None or path is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
+                                detail="This result has expired. Run the page again.")
+        fd, tmp = tempfile.mkstemp(suffix=".pdf")
+        os.close(fd)
+        try:
+            await asyncio.to_thread(protect_pdf, path, tmp, password)
+            with open(tmp, "rb") as f:
+                data = f.read()
+        except PasswordError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from None
+        finally:
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+        download = PUBLIC_FILES[name]["download"].rsplit(".", 1)[0] + "-protected.pdf"
+        return Response(data, media_type="application/pdf",
+                        headers={"Content-Disposition": f'attachment; filename="{download}"',
+                                 "Cache-Control": "private, no-store"})
+
     # -- correction loop (docs/CORRECTIONS.md) ------------------------------
     @app.post("/api/runs/{run_id}/correct", dependencies=[Depends(require_auth)])
     async def correct(run_id: str, body: Dict[str, Any] = Body(...)) -> JSONResponse:

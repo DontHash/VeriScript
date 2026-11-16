@@ -214,12 +214,14 @@ def write_original_page(pdf_path: str, index: int, out_path: str) -> str:
     return out_path
 
 
-def merge_pdfs(out_path: str, parts: Sequence) -> str:
+def merge_pdfs(out_path: str, parts: Sequence, password: Optional[str] = None) -> str:
     """Concatenate PDFs in order.
 
     A part is a path (the whole file) or `(source_path, page_index)`. Runs of
     consecutive pages from the same source are imported in one call so they
-    share fonts and images instead of copying them per page.
+    share fonts and images instead of copying them per page. With
+    `password` (E5), whole-file parts written with that password are opened
+    with it and the result is protected with it too.
     """
     import pypdfium2 as pdfium
 
@@ -236,14 +238,22 @@ def merge_pdfs(out_path: str, parts: Sequence) -> str:
     dst = pdfium.PdfDocument.new()
     try:
         for path, indices in runs:
-            src = pdfium.PdfDocument(path)
+            src = pdfium.PdfDocument(path, password=password if indices is None else None)
             try:
                 dst.import_pages(src, indices)
             finally:
                 src.close()
         part = out_path + ".part"
         dst.save(part)
-        os.replace(part, out_path)
+        if password:
+            from veriscript.document.protect import protect_pdf
+            try:
+                protect_pdf(part, out_path, password)
+            finally:
+                if os.path.exists(part):
+                    os.remove(part)
+        else:
+            os.replace(part, out_path)
     finally:
         dst.close()
     return out_path

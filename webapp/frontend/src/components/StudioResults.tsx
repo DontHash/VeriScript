@@ -3,6 +3,8 @@ import { CodeBlock } from "./CodeBlock";
 import { CompareSlider } from "./CompareSlider";
 import { CorrectionReview } from "./CorrectionReview";
 import { TabPanel, Tabs } from "./Tabs";
+import { protectPdf } from "../lib/api";
+import { announce } from "../lib/announce";
 import { retentionText } from "../lib/health";
 import { type StudioState } from "../lib/studio-state";
 import type { RunFiles } from "../lib/types";
@@ -31,6 +33,95 @@ const DOWNLOADS: { key: keyof RunFiles; name: string; what: string }[] = [
     name: "phone_reading.json",
     what: "What the phone read, with the corrections made there",
   },
+];
+
+/** E5: download one of the run's PDFs protected with a password. */
+function PasswordDownload(props: { runId: string; pdfs: { name: string; what: string }[] }) {
+  const [file, setFile] = createSignal(props.pdfs[0]?.name ?? "");
+  const [password, setPassword] = createSignal("");
+  const [again, setAgain] = createSignal("");
+  const [busy, setBusy] = createSignal(false);
+  const [error, setError] = createSignal<string | null>(null);
+  const mismatch = () => again().length > 0 && again() !== password();
+
+  const submit = async (e: Event) => {
+    e.preventDefault();
+    if (password().length < 6) return setError("Use a password of at least 6 characters.");
+    if (password() !== again()) return setError("The two passwords differ.");
+    setError(null);
+    setBusy(true);
+    try {
+      const blob = await protectPdf(props.runId, file(), password());
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = file().replace(/\.pdf$/, "") + "-protected.pdf";
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 10_000);
+      setPassword("");
+      setAgain("");
+      announce("Protected PDF downloaded. Keep the password safe: it cannot be recovered.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "The PDF could not be protected.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <details class="protect">
+      <summary>Download a PDF with a password</summary>
+      <form class="stack-16" onSubmit={(e) => void submit(e)}>
+        <p class="field__hint">
+          The PDF opens only with this password (AES-256). Nobody can recover it if it is
+          lost, including VeriScript. The password is not saved.
+        </p>
+        <Show when={props.pdfs.length > 1}>
+          <label class="field">
+            <span class="field__label">PDF</span>
+            <select value={file()} onChange={(e) => setFile(e.currentTarget.value)}>
+              <For each={props.pdfs}>{(p) => <option value={p.name}>{p.what}</option>}</For>
+            </select>
+          </label>
+        </Show>
+        <label class="field">
+          <span class="field__label">Password</span>
+          <input
+            type="password"
+            autocomplete="new-password"
+            minLength={6}
+            value={password()}
+            onInput={(e) => setPassword(e.currentTarget.value)}
+          />
+        </label>
+        <label class="field">
+          <span class="field__label">Password again</span>
+          <input
+            type="password"
+            autocomplete="new-password"
+            value={again()}
+            aria-invalid={mismatch()}
+            onInput={(e) => setAgain(e.currentTarget.value)}
+          />
+        </label>
+        <Show when={error() || (mismatch() ? "The two passwords differ." : null)}>
+          {(msg) => <p class="field__hint field__hint--error" role="alert">{msg()}</p>}
+        </Show>
+        <div>
+          <button type="submit" class="btn btn--primary btn--small" disabled={busy()}>
+            {busy() ? "Protecting…" : "Download protected PDF"}
+          </button>
+        </div>
+      </form>
+    </details>
+  );
+}
+
+/** The run's PDFs that can be protected (server names, PUBLIC_FILES). */
+const PDF_FILES: { key: keyof RunFiles; name: string; what: string }[] = [
+  { key: "combined_pdf", name: "combined.pdf", what: "Searchable PDF, all pages" },
+  { key: "pdf", name: "searchable.pdf", what: "Searchable PDF" },
+  { key: "corrected_pdf", name: "corrected.pdf", what: "Corrected PDF" },
 ];
 
 /** Everything a finished run produces, organised in tabs. */
@@ -213,6 +304,12 @@ export function StudioResults(props: { state: StudioState }) {
                     )}
                   </For>
                 </ul>
+                <Show when={PDF_FILES.filter((p) => result().files[p.key]).length > 0}>
+                  <PasswordDownload
+                    runId={result().run_id}
+                    pdfs={PDF_FILES.filter((p) => result().files[p.key])}
+                  />
+                </Show>
                 <p class="field__hint">
                   Run <span class="mono">{result().run_id}</span> · {result().status_line}.{" "}
                   {result().expires_in > 0

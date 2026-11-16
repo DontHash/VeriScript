@@ -164,6 +164,7 @@ def run_document_mode(args) -> int:
                 make_txt=not args.no_txt, make_json=True,
                 make_md=not getattr(args, "no_md", False),
                 pdf_size=getattr(args, "pdf_size", "standard"),
+                pdf_password=getattr(args, "pdf_password_value", None),
                 flatten=getattr(args, "flatten", False))
             choice = res.meta.get("flatten")
             if choice:
@@ -251,7 +252,8 @@ def run_document_mode(args) -> int:
                     combined_pdf = os.path.join(args.output, f"{stem}_combined.pdf")
                     write_searchable_pdf_pages(
                         combined_pdf, [(r.display_bgr, r.ocr.tokens, 300) for r in page_results],
-                        title=bun.title or stem, size=getattr(args, "pdf_size", "standard"))
+                        title=bun.title or stem, size=getattr(args, "pdf_size", "standard"),
+                        password=getattr(args, "pdf_password_value", None))
                     with open(os.path.join(args.output, f"{stem}_combined.txt"), "w",
                               encoding="utf-8") as f:
                         f.write("\n\n".join(r.ocr.text for r in page_results) + "\n")
@@ -313,13 +315,15 @@ def run_document_mode(args) -> int:
                     if originals and all(page_pdfs):
                         # Keep original pages: originals from the source PDF,
                         # OCR'd pages from their per-page PDFs.
-                        pdf_text.merge_pdfs(combined_pdf, page_pdfs)
+                        pdf_text.merge_pdfs(combined_pdf, page_pdfs,
+                                           password=getattr(args, "pdf_password_value", None))
                     else:
                         write_searchable_pdf_pages(
                             combined_pdf,
                             [(r.display_bgr, r.ocr.tokens, pdf_dpi)
                              for r in page_results],
-                            title=stem, size=getattr(args, "pdf_size", "standard"))
+                            title=stem, size=getattr(args, "pdf_size", "standard"),
+                        password=getattr(args, "pdf_password_value", None))
                     combined_txt = os.path.join(args.output, f"{stem}_combined.txt")
                     with open(combined_txt, "w", encoding="utf-8") as f:
                         f.write("\n\n".join(r.ocr.text for r in page_results) + "\n")
@@ -394,6 +398,30 @@ def run_video_mode(args) -> int:
     except (ValueError, OSError, RuntimeError) as exc:
         print(f"[cli] video scan failed: {exc}", file=sys.stderr)
         return 1
+
+
+def _pdf_password(args):
+    """E5: the password comes from a prompt or an environment variable,
+    never from the command line itself (other programs can read that)."""
+    from veriscript.document.protect import PasswordError, check_password
+
+    if getattr(args, "pdf_password_env", None):
+        value = os.environ.get(args.pdf_password_env)
+        if not value:
+            raise SystemExit(f"environment variable {args.pdf_password_env} is empty or not set")
+    elif getattr(args, "pdf_password_prompt", False):
+        import getpass
+        value = getpass.getpass("PDF password: ")
+        if value != getpass.getpass("Type it again: "):
+            raise SystemExit("the two passwords differ")
+    else:
+        return None
+    if getattr(args, "pdf_size", "standard") == "archive":
+        raise SystemExit("archive PDFs (PDF/A) cannot have a password; use --pdf-size standard or small")
+    try:
+        return check_password(value)
+    except PasswordError as exc:
+        raise SystemExit(str(exc)) from None
 
 
 def main():
@@ -514,6 +542,13 @@ def main():
                           "resolution), small (<=150 DPI) or archive (lossless, "
                           "PDF/A-2b); "
                           "the text layer is the same in all three")
+    pw = doc.add_mutually_exclusive_group()
+    pw.add_argument("--pdf-password", action="store_true", dest="pdf_password_prompt",
+                    help="protect the searchable PDFs with a password (AES-256), "
+                         "asked for at a prompt; not with --pdf-size archive")
+    pw.add_argument("--pdf-password-env", metavar="VAR", default=None,
+                    help="like --pdf-password, but read the password from "
+                         "environment variable VAR (for scripts)")
     doc.add_argument("--pdf-text", choices=["auto", "off"], default="auto",
                      dest="pdf_text",
                      help="PDF input: keep a page's own text when it is "
@@ -544,6 +579,7 @@ def main():
         sys.exit(run_video_mode(args))
 
     if args.mode == "document":
+        args.pdf_password_value = _pdf_password(args)
         sys.exit(run_document_mode(args))
 
     if not os.path.exists(args.input):
