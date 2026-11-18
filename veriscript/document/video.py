@@ -262,7 +262,7 @@ def _gutter_cut(view: np.ndarray, paper: np.ndarray) -> int | None:
                 and base - profile[j] >= 12):
             valleys.append((abs(j - (lo + band.size / 2)), j))
     if valleys:
-        return min(valleys)[1]
+        return _refine_fold(gray, paper, min(valleys)[1], w)
     # No sharp valley: a broad binding curve still shows as the global minimum
     # with a real drop around it. Require one clean flank at least — a shadowed
     # page edge sits inside a monotone dark run, so its flank never rises.
@@ -274,8 +274,39 @@ def _gutter_cut(view: np.ndarray, paper: np.ndarray) -> int | None:
              and (left_flank - profile[cut] >= 8)) or (
         profile[cut] <= right_flank - 8 and left_flank - profile[cut] >= 8)
     if float(np.median(band) - profile[cut]) >= 12 and rises:
-        return cut
+        return _refine_fold(gray, paper, cut, w)
     return None
+
+
+def _refine_fold(gray: np.ndarray, paper: np.ndarray, cut: int, book_w: int) -> int:
+    """Move a valley cut onto the fold when the binding is a one-sided step.
+
+    Under side light one page curves into shadow at the binding: the mean
+    profile's minimum then sits inside that shaded page's text, not at the
+    fold, and the other page's crop carries a strip of it. The fold itself is
+    where paper brightness (90th percentile per column, so ink does not count)
+    drops sharply. When the steepest drop clearly outweighs the steepest rise
+    near the cut (or vice versa) the cut moves to that step; a symmetric
+    valley keeps its minimum.
+    """
+    x, y, _, h = cv2.boundingRect(paper)
+    rows = gray[y + int(0.1 * h):y + int(0.9 * h)]
+    r = max(12, int(0.1 * book_w))
+    a, b = max(0, cut - r), min(gray.shape[1], cut + r + 1)
+    if rows.shape[0] < 20 or b - a < 12:
+        return cut
+    paper_light = np.percentile(rows[:, a:b], 90, axis=0).astype(np.float32)
+    paper_light = cv2.GaussianBlur(paper_light[None, :], (0, 0), 1.5)[0]
+    step = paper_light[4:] - paper_light[:-4]  # step[i] spans a+i .. a+i+4
+    drop_i, rise_i = int(np.argmin(step)), int(np.argmax(step))
+    drop, rise = -float(step[drop_i]), float(step[rise_i])
+    if max(drop, rise) < 12:
+        return cut
+    if drop >= 2 * max(rise, 1.0):
+        return a + drop_i + 2
+    if rise >= 2 * max(drop, 1.0):
+        return a + rise_i + 2
+    return cut
 
 
 def _side_crop(frame: np.ndarray, paper: np.ndarray, x_from: int, x_to: int
@@ -290,7 +321,8 @@ def _side_crop(frame: np.ndarray, paper: np.ndarray, x_from: int, x_to: int
     """
     w = frame.shape[1]
     x_to = min(x_to, w)
-    side = paper[:, max(0, x_from):x_to]
+    x_from = max(0, x_from)
+    side = paper[:, x_from:x_to]
     ys, xs = np.nonzero(side)
     if len(xs) < 60:
         return None
@@ -302,8 +334,10 @@ def _side_crop(frame: np.ndarray, paper: np.ndarray, x_from: int, x_to: int
         return None
     pad_x = max(2, int(0.02 * w))
     pad_y = max(2, int(0.02 * frame.shape[0]))
-    xa = max(0, x0 - pad_x)
-    xb = min(x_to, x1 + pad_x + 1)
+    # xs are relative to this side; crop in frame coordinates. The binding
+    # side is not padded across the cut, so no strip of the facing page.
+    xa = max(x_from, x_from + x0 - pad_x)
+    xb = min(x_to, x_from + x1 + pad_x + 1)
     crop = frame[max(0, y0 - pad_y):min(frame.shape[0], y1 + pad_y + 1), xa:xb]
     crop = _trim_ink_edge(crop, right=True)
     if x_from == 0:  # left page: its outer edge is this crop's left edge
@@ -454,8 +488,19 @@ def extract_video_pages(path: str, out_dir: str, options: VideoOptions | None = 
         # warning instead of exporting a torn page.
         if len(split) == 2 and split[0][0] != split[1][0]:
             wl, wr = split[0][1].shape[1], split[1][1].shape[1]
+            narrow = None
             if min(wl, wr) < 0.6 * max(wl, wr):
                 narrow = split[0] if wl <= wr else split[1]
+            else:
+                # Left and right halves differ in width by nature (the
+                # outer page stack sits on one side), so also compare each
+                # half with earlier captures of the same side.
+                for s in split:
+                    seen = [p["width"] for p in pages if p["side"] == s[0]]
+                    if len(seen) >= 2 and s[1].shape[1] < 0.65 * float(np.median(seen)):
+                        narrow = s
+                        break
+            if narrow is not None:
                 split = [s for s in split if s is not narrow]
                 warnings.append(
                     f"{narrow[0].capitalize()} side at t={timestamp:.2f}s is "

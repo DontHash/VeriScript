@@ -174,6 +174,25 @@ with an explicit warning (`Right side at t=20.13s is mostly covered (turning
 leaf or hand); dropped - re-record that page.`) instead of exporting a torn
 page. That page must be re-recorded; the drop is detectable, not repairable.
 
+Correction (2026-11-18): two claims above did not hold on that footage.
+Every exported right page was a copy of the left page plus a strip of the
+facing page (the right side's paper box was measured from the cut but
+cropped from x=0), so the PDF carried pages 58, 60, … 82 twice and none of
+59, 61, … 83. And the cut sat 20-45 px inside the right page's text: under
+side light the right page curves into shadow, so the darkest column is in
+its text, not at the fold. The cut now moves to the fold's brightness step
+(90th-percentile paper brightness, so ink does not count) when one side of
+the binding is clearly darker than the other; a symmetric valley keeps its
+minimum. After the fix, the same footage gives 23 pages: 11 spreads with
+real left and right pages and no facing-page strip on the left pages, plus
+the left half of the spread with the turning leaf. The covered half is still
+dropped with its warning. With the correct cut it is 184 px wide against
+its partner's 290, past the old 0.6 pair ratio, so a half is also dropped
+when it is under 0.65 of the median width of earlier pages on the same side.
+Right pages still carry a sliver of the outer page stack at their right edge.
+Regression tests: `test_right_page_is_cut_from_right_of_the_binding`,
+`test_one_sided_shadow_cuts_at_the_fold_not_inside_the_shaded_page`.
+
 The page remains ~330x478 px in a half of an 848x478 frame; that is a
 recording-resolution limit, not a cropping limit. Re-recording at 1080p or
 4K raises it proportionally. The searchable-text layer at this resolution

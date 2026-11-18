@@ -215,6 +215,46 @@ def test_perspective_rectification_and_explicit_single_override():
     assert len(_split_view(view, "spread")) == 2
 
 
+def _found_at(frame, crop):
+    """x where the crop sits in the frame (exact pixels, best match)."""
+    scores = cv2.matchTemplate(frame, crop, cv2.TM_SQDIFF)
+    return int(cv2.minMaxLoc(scores)[2][0])
+
+
+@pytest.mark.parametrize("make", [_spread, _offcenter_spread])
+def test_right_page_is_cut_from_right_of_the_binding(make):
+    # Regression: the right side's paper box was measured from the cut but
+    # cropped from x=0, so every "right page" repeated the left page.
+    frame = make(7)
+    pages = dict(_split_view(frame, "spread"))
+    binding = 360 if make is _spread else 210
+    assert _found_at(frame, pages["left"]) < binding
+    assert _found_at(frame, pages["right"]) >= binding - 4
+    assert not np.array_equal(pages["left"][:, :50], pages["right"][:, :50])
+
+
+def test_one_sided_shadow_cuts_at_the_fold_not_inside_the_shaded_page():
+    # A page curving into shadow at the binding has its darkest columns inside
+    # its own text, not at the fold; the left page must not carry that text.
+    frame = np.full((480, 720, 3), 35, np.uint8)
+    cv2.rectangle(frame, (40, 20), (680, 460), (238, 238, 238), -1)
+    fold = 350
+    for x in range(fold, 680):  # right page: 150 at the fold, recovering
+        level = int(150 + min(1.0, (x - fold) / 160) * 80)
+        frame[20:461, x] = level
+    rng = np.random.default_rng(3)
+    for left in (60, fold + 4):
+        for line in range(14):
+            y = 60 + line * 27
+            cv2.putText(frame, f"LINE {rng.integers(1000, 9999)} text",
+                        (left + int(rng.integers(0, 10)), y),
+                        cv2.FONT_HERSHEY_SIMPLEX, .5, (20, 20, 20), 1, cv2.LINE_AA)
+    pages = dict(_split_view(frame, "spread"))
+    left_end = _found_at(frame, pages["left"]) + pages["left"].shape[1]
+    assert left_end <= fold + 3
+    assert _found_at(frame, pages["right"]) >= fold - 4
+
+
 def test_failed_export_preserves_previous_pdf(tmp_path):
     previous = tmp_path / "book.pdf"
     previous.write_bytes(b"previous export")
