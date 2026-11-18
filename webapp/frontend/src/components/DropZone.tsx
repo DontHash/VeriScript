@@ -1,37 +1,46 @@
 import { createSignal, onCleanup, onMount, Show } from "solid-js";
 import { formatBytes } from "../lib/api";
+import { acceptedExtensions } from "../lib/studio-state";
 
-const ACCEPT = ".png,.jpg,.jpeg,.webp,.bmp,.tif,.tiff,.pdf";
-
-/** Drag & drop, click, or paste one page. */
+/** Drag & drop, click, or paste a page. Every offered file is passed on;
+ *  the studio decides what to do with more than one. */
 export function DropZone(props: {
   file: File | null;
-  onFile: (file: File) => void;
+  onFiles: (files: File[]) => void;
   onClear: () => void;
   disabled?: boolean;
+  /** Desktop app: accept several files (read one after another). */
+  multiple?: boolean;
+  /** Desktop app: also accept phone bundles (.veriscript). */
+  desktop?: boolean;
 }) {
   const [dragging, setDragging] = createSignal(false);
+  let root: HTMLDivElement | undefined;
   let input: HTMLInputElement | undefined;
   let thumbUrl: string | undefined;
 
-  const accept = (file: File | undefined | null) => {
-    if (!file || props.disabled) return;
-    props.onFile(file);
+  const accept = (files: FileList | File[] | null | undefined) => {
+    const list = Array.from(files ?? []);
+    if (!list.length || props.disabled) return;
+    props.onFiles(list);
   };
 
   const onDrop = (e: DragEvent) => {
     e.preventDefault();
     setDragging(false);
-    accept(e.dataTransfer?.files?.[0]);
+    accept(e.dataTransfer?.files);
   };
 
   onMount(() => {
     const onPaste = (e: ClipboardEvent) => {
+      // The listener is document-wide; ignore pastes while this drop zone is
+      // in a hidden panel (e.g. the Book video tab is showing).
+      if (!root || root.closest("[hidden]")) return;
       const item = Array.from(e.clipboardData?.items ?? []).find((i) =>
         i.type.startsWith("image/"),
       );
       const file = item?.getAsFile();
-      if (file) accept(file);
+      if (file) accept([file]);
     };
     document.addEventListener("paste", onPaste);
     onCleanup(() => {
@@ -41,13 +50,22 @@ export function DropZone(props: {
   });
 
   return (
-    <div>
+    <div ref={root}>
+      {/* Operated through the drop zone button; kept out of the Tab order so
+          there is one control, not two. */}
       <input
         ref={input}
         type="file"
-        accept={ACCEPT}
+        accept={acceptedExtensions(!!props.desktop).join(",")}
+        multiple={props.multiple}
         class="visually-hidden"
-        onChange={(e) => accept(e.currentTarget.files?.[0])}
+        tabindex={-1}
+        aria-label="Choose a page file"
+        onChange={(e) => {
+          accept(e.currentTarget.files);
+          // allow choosing the same file again after clearing it
+          e.currentTarget.value = "";
+        }}
       />
 
       <Show
@@ -57,13 +75,14 @@ export function DropZone(props: {
             class="dropzone"
             data-drag={dragging()}
             role="button"
-            tabindex={0}
-            aria-label="Upload a page: click, drop a file, or paste an image"
-            onClick={() => input?.click()}
+            tabindex={props.disabled ? -1 : 0}
+            aria-disabled={props.disabled ? "true" : undefined}
+            aria-describedby="dropzone-hint"
+            onClick={() => !props.disabled && input?.click()}
             onKeyDown={(e) => {
               if (e.key === "Enter" || e.key === " ") {
                 e.preventDefault();
-                input?.click();
+                if (!props.disabled) input?.click();
               }
             }}
             onDragOver={(e) => {
@@ -73,11 +92,12 @@ export function DropZone(props: {
             onDragLeave={() => setDragging(false)}
             onDrop={onDrop}
           >
-            <span class="dropzone__icon" aria-hidden="true">
-              ¶
-            </span>
             <span class="dropzone__title">Drop a page here, click to browse, or paste</span>
-            <span class="dropzone__hint">png · jpg · webp · tiff · pdf</span>
+            <span class="dropzone__hint" id="dropzone-hint">
+              {props.desktop
+                ? "PNG, JPG, WebP, TIFF, PDF, or a bundle from the phone app"
+                : "PNG, JPG, WebP, TIFF or PDF"}
+            </span>
           </div>
         }
       >
@@ -96,10 +116,11 @@ export function DropZone(props: {
               <button
                 class="fileticket__clear"
                 type="button"
-                aria-label="Remove file"
+                aria-label={`Remove ${file().name}`}
+                disabled={props.disabled}
                 onClick={props.onClear}
               >
-                ✕
+                <span aria-hidden="true">✕</span>
               </button>
             </div>
           );

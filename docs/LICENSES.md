@@ -20,6 +20,8 @@ component below keeps its own terms.
 | `reportlab` | 4.5.1 | BSD license (see license.txt for details), Copyright (c) 2000-2025, ReportLab Inc. |
 | `pypdfium2` | 5.10.1 | BSD-3-Clause, Apache-2.0, dependency licenses |
 | `huggingface_hub` | 1.32.0 | Apache-2.0 |
+| `pypdf` | 6.14.2 | BSD-3-Clause |
+| `cryptography` | 49.0.0 | Apache-2.0 OR BSD-3-Clause |
 
 ## Development / evaluation dependencies
 

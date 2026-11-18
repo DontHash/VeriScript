@@ -21,17 +21,44 @@ def _env_int(name: str, default: int) -> int:
 class Settings:
     """All runtime knobs in one place. Env-first; safe defaults."""
 
+    # "demo" (hosted, shared, quotas on) or "local" (one person on their own
+    # machine, e.g. inside the desktop app). Only changes what the UI says;
+    # limits stay env-driven so each deployment sets them explicitly.
+    mode: str = field(default_factory=lambda: (
+        "local" if str(branding.env("WEB_MODE", "demo")).strip().lower() == "local"
+        else "demo"))
+
+    # Desktop shell: a per-launch secret. When set, every request must carry
+    # it (session cookie or X-VeriScript-Token header), so other programs on
+    # the machine cannot drive this server. See security.DesktopSessionMiddleware.
+    desktop_token: str | None = field(
+        default_factory=lambda: branding.env("WEB_DESKTOP_TOKEN") or None)
+
+    # Where run artifacts live (default: webapp/runs). The desktop app points
+    # this at the user's app-data folder.
+    runs_dir: str | None = field(
+        default_factory=lambda: branding.env("WEB_RUNS_DIR") or None)
+
     host: str = field(default_factory=lambda: branding.env("WEB_HOST", "127.0.0.1"))
     port: int = field(default_factory=lambda: _env_int("WEB_PORT", 8000))
 
     # Upload limits
     max_upload_mb: int = field(default_factory=lambda: _env_int("WEB_MAX_UPLOAD_MB", 12))
     max_image_megapixels: int = field(default_factory=lambda: _env_int("WEB_MAX_MP", 30))
+    video_upload_mb: int = field(default_factory=lambda: _env_int("WEB_VIDEO_UPLOAD_MB", 512))
+    video_max_pages: int = field(default_factory=lambda: _env_int("WEB_VIDEO_MAX_PAGES", 150))
+    video_max_seconds: int = field(default_factory=lambda: _env_int("WEB_VIDEO_MAX_SECONDS", 600))
+    video_timeout_s: int = field(default_factory=lambda: _env_int("WEB_VIDEO_TIMEOUT_S", 600))
+    video_pages_per_client: int = field(default_factory=lambda: _env_int("WEB_VIDEO_PAGES_PER_CLIENT", 200))
+
+    # PDF pages read per run with "all pages" on. 0 = no cap (desktop app).
+    page_cap: int = field(default_factory=lambda: max(0, _env_int("WEB_PAGE_CAP", 10)))
+    # Jobs waiting behind the one running (the rest get a 503).
+    max_queued_jobs: int = field(default_factory=lambda: max(1, _env_int("WEB_MAX_QUEUED", 20)))
 
     # Processing
     process_timeout_s: int = field(default_factory=lambda: _env_int("WEB_TIMEOUT_S", 180))
     max_concurrent: int = field(default_factory=lambda: _env_int("WEB_CONCURRENCY", 1))
-    queue_wait_s: int = field(default_factory=lambda: _env_int("WEB_QUEUE_WAIT_S", 25))
 
     # Real client IP for rate limiting: "direct" (default) or "xff-last".
     # "xff-last" trusts the last X-Forwarded-For entry — correct for managed
@@ -85,7 +112,8 @@ class Settings:
 
     @property
     def run_ttl_seconds(self) -> int:
-        return self.run_ttl_minutes * 60
+        """0 = keep runs until the user deletes them (desktop app)."""
+        return max(0, self.run_ttl_minutes) * 60
 
 
 settings = Settings()

@@ -1,34 +1,41 @@
 """FastAPI application: the VeriScript web studio.
 
 - Serves the built frontend (webapp/frontend/dist) when present.
-- POST /api/restore  → run the document pipeline on one uploaded page.
-- GET  /api/runs/{id}/files/{name} → artifacts of a finished run.
+- POST   /api/jobs        → queue an upload; returns at once (202) with a job.
+- GET    /api/jobs/{id}   → status, per-page progress, and the result when done.
+- DELETE /api/jobs/{id}   → cancel; the job stops between pages.
+- POST   /api/restore     → the same, waiting for the result (scripts, client).
+- GET    /api/runs/{id}/files/{name} → artifacts of a finished run.
 """
 from __future__ import annotations
 
 import asyncio
+import io
 import json
 import os
 import shutil
 import threading
 import time
+import zipfile
 from contextlib import asynccontextmanager
 from typing import Any, Dict, Optional
 
 from fastapi import (Body, Depends, FastAPI, File, Form, HTTPException, Request,
                      UploadFile, status)
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from .config import settings
 from .compression import SelectiveGZipMiddleware
+from . import diagnostics as _diagnostics  # noqa: F401 - installs the recent-log handler
+from .jobs import Job, JobCancelled, JobManager, JobRejected
 from .pipeline import (PAGE_CAP, PipelineError, collect_run_summary,
-                       process_page)
-from .security import (DailyKeyedQuota, DailyQuota, RateLimiter,
-                       SecurityHeadersMiddleware, client_key,
+                       pages_to_process, process_page)
+from .security import (DailyKeyedQuota, DailyQuota, DesktopSessionMiddleware,
+                       RateLimiter, SecurityHeadersMiddleware, client_key,
                        http_exception_handler, new_run_id, require_auth,
                        validate_upload)
-from .storage import PUBLIC_FILES, RunStore
+from .storage import PUBLIC_FILES, RUN_ID_RE, RunStore
 
 from veriscript.logging_setup import get_logger
 
@@ -37,10 +44,12 @@ _LOG = get_logger("web")
 HERE = os.path.dirname(os.path.abspath(__file__))
 WEBAPP_DIR = os.path.dirname(HERE)
 FRONTEND_DIST = os.path.join(WEBAPP_DIR, "frontend", "dist")
-RUNS_DIR = os.path.join(WEBAPP_DIR, "runs")
+RUNS_DIR = settings.runs_dir or os.path.join(WEBAPP_DIR, "runs")
 
 MAX_LANG = {"en", "ne", "hi"}
 OCR_BACKENDS = {"auto", "rapidocr", "tesseract"}
+#: Searchable-PDF size presets (veriscript.document.export.PDF_SIZES).
+PDF_SIZES = ("standard", "small", "archive")
 
 
 def _flag(value: str, default: bool = True) -> bool:
@@ -143,18 +152,7 @@ def _parse_corrections_body(body: Optional[Dict[str, Any]]):
 
 def _count_pages(kind: str, path: str, all_pages: bool) -> int:
     """Quota units for one request: a 10-page PDF costs 10 pages, not 1 run."""
-    if kind != "pdf" or not all_pages:
-        return 1
-    try:
-        import pypdfium2 as pdfium
-
-        doc = pdfium.PdfDocument(path)
-        try:
-            return max(1, min(len(doc), PAGE_CAP))
-        finally:
-            doc.close()
-    except Exception:  # noqa: BLE001 - best-effort count; validation handles bad files
-        return PAGE_CAP
+    return pages_to_process(path, kind, all_pages)
 
 
 store = RunStore(RUNS_DIR, settings.run_ttl_seconds)
@@ -164,6 +162,7 @@ page_quota = DailyQuota(settings.daily_pages)
 client_pages = DailyKeyedQuota(settings.pages_per_client)
 _worker_sem = threading.Semaphore(settings.max_concurrent)
 _worker_busy = threading.Event()
+jobs = JobManager(_worker_sem, _worker_busy, max_queued=settings.max_queued_jobs)
 
 VERSION = "0.1.0"
 
@@ -190,21 +189,30 @@ def _warm_lang() -> Optional[str]:
 def _warm_pipeline() -> None:
     """Load the OCR engine in the background so the first visitor does not pay
     the model warm-up (including the one-time Devanagari model download).
-    Best-effort; failures are non-fatal."""
-    try:
-        import tempfile
+    Best-effort; failures are non-fatal.
 
-        from veriscript.core import data as doc_data
-        from veriscript.document.pipeline import run_document_pipeline
+    The warm-up holds the worker slot like a real run. Initialising the OCR
+    engine while a request uses it crashed the process natively (no Python
+    traceback), so a request made during warm-up now queues behind it and
+    /api/health reports busy until it finishes."""
+    with _worker_sem:
+        _worker_busy.set()
+        try:
+            import tempfile
 
-        page, _gt = doc_data.render_synthetic_invoice(seed=1, dpi=110)
-        with tempfile.TemporaryDirectory(prefix="vv_warm_") as td:
-            run_document_pipeline(page, backend=None, lang=_warm_lang(),
-                                  out_dir=td,
-                                  stem="warm", make_pdf=False, make_overlay=False,
-                                  make_txt=False, make_json=False)
-    except Exception:  # noqa: BLE001 - warm-up only
-        pass
+            from veriscript.core import data as doc_data
+            from veriscript.document.pipeline import run_document_pipeline
+
+            page, _gt = doc_data.render_synthetic_invoice(seed=1, dpi=110)
+            with tempfile.TemporaryDirectory(prefix="vv_warm_") as td:
+                run_document_pipeline(page, backend=None, lang=_warm_lang(),
+                                      out_dir=td,
+                                      stem="warm", make_pdf=False, make_overlay=False,
+                                      make_txt=False, make_json=False)
+        except Exception:  # noqa: BLE001 - warm-up only
+            pass
+        finally:
+            _worker_busy.clear()
 
 
 @asynccontextmanager
@@ -219,11 +227,24 @@ async def _lifespan(app: FastAPI):
         task.cancel()
 
 
+def _flatten_available() -> bool:
+    """UVDoc (ONNX or PyTorch) is installed (docs/TECH_UPGRADE_PLAN.md F1)."""
+    try:
+        from veriscript.document import dewarp
+        return dewarp.available()
+    except Exception:  # noqa: BLE001 - a broken install only hides the option
+        return False
+
+
 def create_app() -> FastAPI:
     app = FastAPI(title="VeriScript Studio", version=VERSION,
                   docs_url=None, redoc_url=None, openapi_url=None,
                   lifespan=_lifespan)
 
+    # Starlette runs the last-added middleware first: the session gate sits
+    # inside the security headers, so its 403s carry them too.
+    if settings.desktop_token:
+        app.add_middleware(DesktopSessionMiddleware, token=settings.desktop_token)
     app.add_middleware(SecurityHeadersMiddleware)
     app.add_middleware(SelectiveGZipMiddleware, minimum_size=1024,
                        compresslevel=6)
@@ -235,12 +256,19 @@ def create_app() -> FastAPI:
         return {
             "ok": True,
             "version": VERSION,
+            "mode": settings.mode,
             "busy": _busy(),
             "limits": {
                 "max_upload_mb": settings.max_upload_mb,
+                # F1: curved-page flattening is offered when the model is here.
+                "flatten": _flatten_available(),
+                "video_upload_mb": settings.video_upload_mb,
+                "video_max_pages": settings.video_max_pages,
+                "video_max_seconds": settings.video_max_seconds,
                 "max_image_megapixels": settings.max_image_megapixels,
                 "max_pages": PAGE_CAP,
-                "ttl_minutes": settings.run_ttl_minutes,
+                "ttl_minutes": max(0, settings.run_ttl_minutes),
+                "queued": jobs.queued_count(),
                 "rate_max": settings.rate_max_in_window,
                 "rate_window_s": settings.rate_window_s,
                 "auth": settings.auth_enabled,
@@ -254,19 +282,31 @@ def create_app() -> FastAPI:
             },
         }
 
-    # -- restore -----------------------------------------------------------
-    @app.post("/api/restore", dependencies=[Depends(require_auth)])
-    async def restore(request: Request,
-                      file: UploadFile = File(...),
-                      lang: str = Form("ne"),
-                      deskew: str = Form("0"),
-                      ocr: str = Form("auto"),
-                      overlay: str = Form("1"),
-                      pdf: str = Form("1"),
-                      txt: str = Form("1"),
-                      md: str = Form("1"),
-                      all_pages: str = Form("0"),
-                      auto_rotate: str = Form("1")) -> JSONResponse:
+    # -- diagnostics (desktop only) ------------------------------------------
+    @app.get("/api/diagnostics", dependencies=[Depends(require_auth)])
+    async def diagnostics() -> Dict[str, Any]:
+        """Versions, limits, recent jobs and warnings for a bug report.
+
+        Local mode only: on a shared demo the recent errors could belong to
+        other visitors. Nothing is sent anywhere; the person copies it."""
+        if settings.mode != "local":
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
+                                detail="Not available on the shared demo.")
+        from . import diagnostics as diag
+
+        data = diag.report(version=VERSION, settings=settings, jobs=jobs)
+        return {**data, "text": diag.as_text(data)}
+
+    # -- jobs --------------------------------------------------------------
+    async def _submit(request: Request, file: UploadFile, *, lang: str,
+                      deskew: str, ocr: str, overlay: str, pdf: str, txt: str,
+                      md: str, all_pages: str, auto_rotate: str,
+                      text_layer: str = "1", pdf_size: str = "standard",
+                      flatten: str = "0") -> Job:
+        """Validate, store and charge an upload, then queue it as a job.
+
+        Never blocks the event loop: the job runs on the job worker, which
+        holds the shared worker slot only while the pipeline really runs."""
         allowed, retry_after = limiter.check(client_key(request))
         if not allowed:
             raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS,
@@ -304,11 +344,8 @@ def create_app() -> FastAPI:
 
             with open(upload_path, "rb") as f:
                 head = f.read(64)
-            try:
-                kind = validate_upload(file.filename, file.content_type, head,
-                                       upload_path)
-            except HTTPException:
-                raise
+            kind = validate_upload(file.filename, file.content_type, head,
+                                   upload_path)
         except HTTPException:
             shutil.rmtree(run_dir, ignore_errors=True)
             raise
@@ -346,57 +383,160 @@ def create_app() -> FastAPI:
                 detail="The demo's daily budget is used up. Try again after midnight UTC.",
                 headers={"Retry-After": str(retry_after)})
 
-        # Single heavy worker: wait briefly, then shed load.
-        acquired = _worker_sem.acquire(timeout=settings.queue_wait_s)
-        if not acquired:
+        options = dict(lang=None if lang == "en" else lang, deskew=deskew_flag,
+                       kind=kind, ocr=ocr,
+                       make_overlay=_flag(overlay), make_pdf=_flag(pdf),
+                       make_txt=_flag(txt), make_md=_flag(md),
+                       all_pages=all_pages_flag,
+                       auto_rotate=_flag(auto_rotate),
+                       use_text_layer=_flag(text_layer),
+                       pdf_size=pdf_size if pdf_size in PDF_SIZES else "standard",
+                       flatten=_flag(flatten) and _flatten_available())
+
+        # Library title: the uploaded file's name without its extension.
+        title = os.path.splitext(os.path.basename(file.filename or ""))[0][:120]             or "Untitled"
+
+        def work(job: Job) -> Dict[str, Any]:
+            try:
+                try:
+                    payload = process_page(upload_path, run_dir, run_id,
+                                           progress=job.progress,
+                                           check=job.check, title=title, **options)
+                except PipelineError as exc:
+                    raise JobRejected(str(exc)) from exc
+            finally:
+                try:
+                    os.remove(upload_path)
+                except OSError:
+                    pass
+            store.write_manifest(run_id, {"meta": payload.get("meta", {}),
+                                          "files": list(PUBLIC_FILES.keys()),
+                                          # a phone bundle carries its own title
+                                          "title": payload.get("title") or title,
+                                          "created": int(time.time()),
+                                          "status_line": payload.get("status_line", "")})
+            payload["expires_in"] = settings.run_ttl_seconds
+            return payload
+
+        job = Job(id=run_id, run_dir=run_dir, work=work,
+                  timeout_s=settings.process_timeout_s)
+        job.pages = pages
+        try:
+            jobs.submit(job)
+        except OverflowError:
             shutil.rmtree(run_dir, ignore_errors=True)
             raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                                detail="The demo worker is busy with another "
-                                       "page. Try again in a moment.",
+                                detail="Too many files are waiting. Try again "
+                                       "when some have finished.",
                                 headers={"Retry-After": "10"})
-        _worker_busy.set()
+        return job
+
+    def _job_or_404(job_id: str) -> Job:
+        job = jobs.get(job_id) if RUN_ID_RE.match(job_id or "") else None
+        if job is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
+                                detail="No such job. It may have finished long ago; "
+                                       "run the file again.")
+        return job
+
+    @app.post("/api/jobs", dependencies=[Depends(require_auth)],
+              status_code=status.HTTP_202_ACCEPTED)
+    async def create_job(request: Request,
+                         file: UploadFile = File(...),
+                         lang: str = Form("ne"),
+                         deskew: str = Form("0"),
+                         ocr: str = Form("auto"),
+                         overlay: str = Form("1"),
+                         pdf: str = Form("1"),
+                         txt: str = Form("1"),
+                         md: str = Form("1"),
+                         all_pages: str = Form("0"),
+                         auto_rotate: str = Form("1"),
+                         text_layer: str = Form("1"),
+                         pdf_size: str = Form("standard"),
+                         flatten: str = Form("0")) -> JSONResponse:
+        job = await _submit(request, file, lang=lang, deskew=deskew, ocr=ocr,
+                            overlay=overlay, pdf=pdf, txt=txt, md=md,
+                            all_pages=all_pages, auto_rotate=auto_rotate,
+                            text_layer=text_layer, pdf_size=pdf_size, flatten=flatten)
+        return JSONResponse(job.public(jobs.position(job)),
+                            status_code=status.HTTP_202_ACCEPTED,
+                            headers={"Location": f"/api/jobs/{job.id}"})
+
+    @app.get("/api/jobs/{job_id}", dependencies=[Depends(require_auth)])
+    async def get_job(job_id: str) -> JSONResponse:
+        job = _job_or_404(job_id)
+        return JSONResponse(job.public(jobs.position(job)),
+                            headers={"Cache-Control": "no-store"})
+
+    @app.delete("/api/jobs/{job_id}", dependencies=[Depends(require_auth)])
+    async def cancel_job(job_id: str) -> JSONResponse:
+        job = jobs.cancel(_job_or_404(job_id).id)
+        return JSONResponse(job.public(jobs.position(job)))
+
+    @app.post("/api/restore", dependencies=[Depends(require_auth)])
+    async def restore(request: Request,
+                      file: UploadFile = File(...),
+                      lang: str = Form("ne"),
+                      deskew: str = Form("0"),
+                      ocr: str = Form("auto"),
+                      overlay: str = Form("1"),
+                      pdf: str = Form("1"),
+                      txt: str = Form("1"),
+                      md: str = Form("1"),
+                      all_pages: str = Form("0"),
+                      auto_rotate: str = Form("1"),
+                      text_layer: str = Form("1"),
+                      pdf_size: str = Form("standard"),
+                      flatten: str = Form("0")) -> JSONResponse:
+        """Queue the upload and wait for it (scripts and the typed client).
+
+        Waiting polls the job without blocking the event loop. If the caller
+        goes away, the job is cancelled; it then stops between pages."""
+        job = await _submit(request, file, lang=lang, deskew=deskew, ocr=ocr,
+                            overlay=overlay, pdf=pdf, txt=txt, md=md,
+                            all_pages=all_pages, auto_rotate=auto_rotate,
+                            text_layer=text_layer, pdf_size=pdf_size, flatten=flatten)
         try:
-            loop = asyncio.get_running_loop()
-            payload = await asyncio.wait_for(
-                loop.run_in_executor(None, lambda: process_page(
-                    upload_path, run_dir, run_id,
-                    lang=None if lang == "en" else lang, deskew=deskew_flag,
-                    kind=kind, ocr=ocr,
-                    make_overlay=_flag(overlay), make_pdf=_flag(pdf),
-                    make_txt=_flag(txt), make_md=_flag(md),
-                    all_pages=all_pages_flag,
-                    auto_rotate=_flag(auto_rotate))),
-                timeout=settings.process_timeout_s)
-        except asyncio.TimeoutError:
-            _LOG.warning("restore timed out after %.0fs (run=%s)",
-                         settings.process_timeout_s, run_id)
-            shutil.rmtree(run_dir, ignore_errors=True)
+            while not job.done.is_set():
+                await asyncio.sleep(0.05)
+        except asyncio.CancelledError:
+            jobs.cancel(job.id)
+            raise
+        if job.status == "done":
+            return JSONResponse(job.result)
+        if job.status == "cancelled":
+            raise HTTPException(status_code=499, detail="The run was cancelled.")
+        if job.error_status == 504:
             raise HTTPException(status_code=status.HTTP_504_GATEWAY_TIMEOUT,
                                 detail="Processing timed out for this page.")
-        except PipelineError as exc:
-            _LOG.warning("pipeline rejected the page (run=%s): %s", run_id, exc)
-            shutil.rmtree(run_dir, ignore_errors=True)
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
-        except Exception:
-            _LOG.exception("restore failed (run=%s)", run_id)
-            shutil.rmtree(run_dir, ignore_errors=True)
-            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                                detail="The pipeline failed on this page. "
-                                       "Try a cleaner scan or a different file.")
-        finally:
-            _worker_busy.clear()
-            _worker_sem.release()
-            try:
-                os.remove(upload_path)
-            except OSError:
-                pass
-
-        store.write_manifest(run_id, {"meta": payload.get("meta", {}),
-                                      "files": list(PUBLIC_FILES.keys())})
-        payload["expires_in"] = settings.run_ttl_seconds
-        return JSONResponse(payload)
+        raise HTTPException(status_code=job.error_status,
+                            detail=job.error or "The run failed.")
 
     # -- artifacts ---------------------------------------------------------
+    @app.get("/api/runs/{run_id}/files.zip", dependencies=[Depends(require_auth)])
+    async def run_files_zip(run_id: str) -> Response:
+        """Every result file of a run in one archive ("Download all").
+
+        The training export (corrections.zip) is left out: it is only ever
+        shared by an explicit, separate choice."""
+        if not RUN_ID_RE.match(run_id) or store.read_manifest(run_id) is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
+                                detail="This result has expired. Run the page again.")
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            for name in PUBLIC_FILES:
+                if name == "corrections.zip":
+                    continue
+                path = store.resolve_file(run_id, name)
+                if path:
+                    zf.write(path, arcname=PUBLIC_FILES[name]["download"])
+        return Response(
+            buf.getvalue(), media_type="application/zip",
+            headers={"Content-Disposition":
+                     f'attachment; filename="veriscript-{run_id}.zip"',
+                     "Cache-Control": "private, no-store"})
+
     @app.get("/api/runs/{run_id}/files/{name}", dependencies=[Depends(require_auth)])
     async def run_file(run_id: str, name: str, download: int = 0) -> FileResponse:
         if name not in PUBLIC_FILES:
@@ -412,6 +552,44 @@ def create_app() -> FastAPI:
             filename=PUBLIC_FILES[name]["download"] if download else None,
             headers={"Cache-Control": "private, max-age=300"},
         )
+
+    @app.post("/api/runs/{run_id}/protect", dependencies=[Depends(require_auth)])
+    async def protect_file(run_id: str, body: Dict[str, Any] = Body(...)) -> Response:
+        """A password-protected copy of one of the run's PDFs (E5).
+
+        AES-256 (revision 6). The copy is built in memory and returned; it
+        and the password are never written into the run or any log."""
+        import tempfile
+
+        from veriscript.document.protect import PasswordError, protect_pdf
+
+        name = body.get("file")
+        password = body.get("password")
+        if (name not in PUBLIC_FILES or PUBLIC_FILES[name]["media"] != "application/pdf"
+                or not isinstance(password, str)):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                                detail="Choose one of this result's PDFs and a password.")
+        path = store.resolve_file(run_id, name)
+        if store.read_manifest(run_id) is None or path is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
+                                detail="This result has expired. Run the page again.")
+        fd, tmp = tempfile.mkstemp(suffix=".pdf")
+        os.close(fd)
+        try:
+            await asyncio.to_thread(protect_pdf, path, tmp, password)
+            with open(tmp, "rb") as f:
+                data = f.read()
+        except PasswordError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from None
+        finally:
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+        download = PUBLIC_FILES[name]["download"].rsplit(".", 1)[0] + "-protected.pdf"
+        return Response(data, media_type="application/pdf",
+                        headers={"Content-Disposition": f'attachment; filename="{download}"',
+                                 "Cache-Control": "private, no-store"})
 
     # -- correction loop (docs/CORRECTIONS.md) ------------------------------
     @app.post("/api/runs/{run_id}/correct", dependencies=[Depends(require_auth)])
@@ -510,6 +688,12 @@ def create_app() -> FastAPI:
 
         return {"removed": correction_memory.clear(),
                 "enabled": correction_memory.memory_enabled()}
+
+    from .video import register_video_routes
+    import sys
+    register_video_routes(app, sys.modules[__name__])
+    from .library import register_library_routes
+    register_library_routes(app, sys.modules[__name__])
 
     # -- frontend ----------------------------------------------------------
     if os.path.isdir(FRONTEND_DIST):

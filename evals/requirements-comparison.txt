@@ -1,0 +1,3 @@
+# Windows Pillow wheels do not include RAQM; shape Devanagari explicitly.
+uharfbuzz==0.56.3
+freetype-py==2.5.1

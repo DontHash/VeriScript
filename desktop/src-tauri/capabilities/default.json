@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "No IPC: the window only shows the bundled splash and the local studio, neither of which calls Tauri commands.",
+  "windows": ["main"],
+  "permissions": []
+}

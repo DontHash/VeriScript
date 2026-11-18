@@ -1,0 +1,28 @@
+{
+  "_about": "Performance budgets checked in CI (docs/TECH_UPGRADE_PLAN.md G). A measurement above its max fails the build. 'baseline' is what was measured when the budget was set; max leaves headroom for CI machines, which are slower and noisier than the development PC. Tighten a budget only from CI history, never from one fast run. scripts/perf_budget.py reads this file.",
+  "desktop_page_seconds": {
+    "max": 40,
+    "baseline": null,
+    "what": "Desktop CPU path: one 1700x2400 text page through run_document_pipeline (model already loaded), median of 3 runs"
+  },
+  "apk_arm64_mb": {
+    "max": 145,
+    "baseline": 136.5,
+    "what": "Release APK for arm64-v8a (split per ABI), with the RapidOCR and UVDoc models"
+  },
+  "apk_x86_64_mb": {
+    "max": 185,
+    "baseline": 176.4,
+    "what": "Release APK for x86_64, the one the CI emulator installs"
+  },
+  "emulator_cold_start_ms": {
+    "max": 6000,
+    "baseline": null,
+    "what": "am start -W TotalTime of the release APK on the CI emulator, cold, median of 3"
+  },
+  "emulator_page_read_seconds": {
+    "max": 15,
+    "baseline": null,
+    "what": "ML Kit reading of one generated text page on the CI emulator (integration_test/ci_smoke_test.dart), after a warm-up read"
+  }
+}

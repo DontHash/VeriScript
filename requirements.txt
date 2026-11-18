@@ -11,3 +11,6 @@ rapidocr==3.9.*
 reportlab
 pypdfium2
 huggingface_hub
+# Password-protected PDFs (AES-256, revision 6; docs/TECH_UPGRADE_PLAN.md E5)
+pypdf
+cryptography

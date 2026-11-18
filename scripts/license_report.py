@@ -73,6 +73,8 @@ MODELS = [
 # Packages whose metadata does not carry a license string.
 KNOWN_LICENSES = {
     "rapidocr": "Apache-2.0",
+    "pypdf": "BSD-3-Clause",
+    "cryptography": "Apache-2.0 OR BSD-3-Clause",
     "onnxruntime": "MIT",
     "pypdfium2": "Apache-2.0 / BSD-3-Clause (bundled PDFium)",
     "torch": "BSD-3-Clause",

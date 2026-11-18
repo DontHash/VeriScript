@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>VeriScript</title>
+    <link rel="stylesheet" href="splash.css" />
+    <script src="splash.js" defer></script>
+  </head>
+  <body>
+    <main class="splash">
+      <p class="wordmark">VeriScript</p>
+      <div id="starting">
+        <div class="progress" role="progressbar" aria-label="Starting VeriScript">
+          <div class="progress__fill"></div>
+        </div>
+        <p role="status" aria-live="polite">Starting the reading engine on this computer…</p>
+        <p class="hint">The first start can take up to a minute while the OCR models load.</p>
+      </div>
+      <div id="failed" hidden>
+        <h1>VeriScript could not start</h1>
+        <p id="error" role="alert"></p>
+      </div>
+    </main>
+  </body>
+</html>

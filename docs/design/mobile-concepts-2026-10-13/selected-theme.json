@@ -1,0 +1,19 @@
+{
+  "product": "VeriScript",
+  "selectedOn": "2026-10-13",
+  "status": "Implemented in the Flutter Android application under mobile; narrow-screen theme checks pass",
+  "palettesFile": "palettes.json",
+  "modes": {
+    "light": { "paletteKey": "a", "name": "Paper & Ink" },
+    "dark": { "paletteKey": "c", "name": "Night Studio" }
+  },
+  "plannedAppearanceOptions": ["system", "light", "dark"],
+  "plannedDefaultAppearance": "system",
+  "shared": {
+    "layout": true,
+    "typography": true,
+    "spacing": true,
+    "features": true,
+    "documentPreviewsRemainLight": true
+  }
+}

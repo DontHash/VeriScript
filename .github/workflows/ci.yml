@@ -31,8 +31,47 @@ jobs:
           pip install -r requirements.txt -r requirements-dev.txt
           pip install -r webapp/requirements-web.txt
 
+      # PDF/A-2b (docs/TECH_UPGRADE_PLAN.md E4): veraPDF 1.30.4, pinned by
+      # version and SHA-256 (docs/EXTERNAL_ASSETS.md). Installed before the
+      # test suite so tests/test_pdf_size.py's veraPDF test runs too.
+      - name: Install veraPDF (PDF/A validator)
+        run: |
+          curl -sSfL -o "$RUNNER_TEMP/verapdf.zip" \
+            https://software.verapdf.org/releases/1.30/verapdf-greenfield-1.30.4-installer.zip
+          echo "04415ef3f149526a3048b9889723e81320ddf013bd891bcc7f0f297f3eadcc23  $RUNNER_TEMP/verapdf.zip" | sha256sum -c -
+          unzip -q "$RUNNER_TEMP/verapdf.zip" -d "$RUNNER_TEMP"
+          cat > "$RUNNER_TEMP/auto-install.xml" <<EOF
+          <AutomatedInstallation langpack="eng">
+            <com.izforge.izpack.panels.htmlhello.HTMLHelloPanel id="welcome"/>
+            <com.izforge.izpack.panels.target.TargetPanel id="install_dir">
+              <installpath>$RUNNER_TEMP/verapdf</installpath>
+            </com.izforge.izpack.panels.target.TargetPanel>
+            <com.izforge.izpack.panels.packs.PacksPanel id="sdk_pack_select">
+              <pack index="0" name="veraPDF GUI" selected="false"/>
+              <pack index="1" name="veraPDF CLI" selected="true"/>
+              <pack index="2" name="veraPDF Documentation" selected="false"/>
+              <pack index="3" name="veraPDF Sample Plugins" selected="false"/>
+            </com.izforge.izpack.panels.packs.PacksPanel>
+            <com.izforge.izpack.panels.install.InstallPanel id="install"/>
+            <com.izforge.izpack.panels.finish.FinishPanel id="finish"/>
+          </AutomatedInstallation>
+          EOF
+          java -jar "$RUNNER_TEMP/verapdf-greenfield-1.30.4/verapdf-izpack-installer-1.30.4.jar" \
+            "$RUNNER_TEMP/auto-install.xml"
+          echo "VERAPDF=$RUNNER_TEMP/verapdf/verapdf" >> "$GITHUB_ENV"
+
       - name: Test suite
         run: python -m pytest tests -rs
+
+      - name: Archive PDFs pass PDF/A-2b (veraPDF)
+        run: python scripts/check_pdfa.py
+
+      # Performance budget (perf_budgets.json): a slower page fails the build.
+      - name: Desktop page reading time
+        run: |
+          echo "| budget | measured | max | |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|---|---|---|---|" >> "$GITHUB_STEP_SUMMARY"
+          python scripts/perf_budget.py desktop-page
 
   license-gate:
     name: license gate
@@ -45,6 +84,17 @@ jobs:
       - name: Rebuild the report and check for unresolved licenses
         run: python scripts/license_report.py --check --out /tmp/LICENSES.md
 
+  tokens:
+    name: design tokens are current and meet contrast
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Check generated palettes and WCAG contrast pairs
+        run: python scripts/build_tokens.py --check
+
   frontend:
     name: frontend build
     runs-on: ubuntu-latest
@@ -55,11 +105,148 @@ jobs:
           node-version: "22"
           cache: npm
           cache-dependency-path: webapp/frontend/package-lock.json
-      - name: Build the studio
+      - name: Typecheck and build the studio
         working-directory: webapp/frontend
         run: |
           npm ci
           npm run build
+
+      # Accessibility gate (docs/UX_A11Y_AUDIT.md): axe + keyboard checks on
+      # every studio state, API mocked. Ratchet baseline: e2e/a11y-baseline.json.
+      - name: Install Chromium for Playwright
+        working-directory: webapp/frontend
+        run: npx playwright install --with-deps chromium
+
+      - name: Accessibility and keyboard smoke tests
+        working-directory: webapp/frontend
+        run: npm run test:e2e
+
+      - name: Upload the Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: webapp/frontend/playwright-report
+          retention-days: 14
+
+  desktop:
+    name: desktop shell builds and tests (windows)
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: desktop/src-tauri
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rust toolchain
+        run: rustup toolchain install stable --profile minimal --component clippy
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            desktop/src-tauri/target
+          key: desktop-${{ runner.os }}-${{ hashFiles('desktop/src-tauri/Cargo.lock') }}
+
+      - name: Lint and test
+        run: |
+          cargo clippy --locked --all-targets -- -D warnings
+          cargo test --locked
+
+  mobile:
+    name: android app analyzes and tests (a11y guidelines included)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.44.9"
+          channel: stable
+          cache: true
+
+      - name: Analyze and test
+        run: |
+          flutter pub get
+          flutter analyze
+          flutter test
+
+  # docs/TECH_UPGRADE_PLAN.md G: the real app on an emulator on every pull
+  # request, with size and speed budgets (perf_budgets.json).
+  mobile-device:
+    name: android release build, emulator smoke test and budgets
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.44.9"
+          channel: stable
+          cache: true
+
+      # Models enter the APK only after their pinned SHA-256 checks.
+      - name: Bundled models (RapidOCR, UVDoc)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libgl1 libglib2.0-0 libgomp1
+          python -m pip install --upgrade pip
+          pip install --index-url https://download.pytorch.org/whl/cpu torch
+          pip install numpy opencv-python-headless onnx onnxruntime
+          python mobile/tool/prepare_rapidocr.py
+          python mobile/tool/prepare_uvdoc.py
+
+      - name: Release APKs (arm64, x86_64)
+        working-directory: mobile
+        run: |
+          flutter pub get
+          flutter build apk --release --split-per-abi --target-platform android-arm64,android-x64
+
+      - name: APK size budgets
+        run: |
+          echo "| budget | measured | max | |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|---|---|---|---|" >> "$GITHUB_STEP_SUMMARY"
+          python scripts/perf_budget.py apk apk_arm64_mb mobile/build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
+          python scripts/perf_budget.py apk apk_x86_64_mb mobile/build/app/outputs/flutter-apk/app-x86_64-release.apk
+
+      - name: Enable KVM for the emulator
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      # Start-up time is measured on the release build first; the smoke
+      # test then installs its own build over it.
+      - name: "Emulator: start-up time and smoke test"
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          ram-size: 3072M
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          script: |
+            adb install -r mobile/build/app/outputs/flutter-apk/app-x86_64-release.apk
+            python scripts/perf_budget.py startup emulator_cold_start_ms com.veriscript.veriscript_mobile/.MainActivity
+            adb uninstall com.veriscript.veriscript_mobile
+            bash -c 'set -o pipefail; cd mobile && flutter test integration_test/ci_smoke_test.dart -d emulator-5554 | tee ../smoke.log'
+            python scripts/perf_budget.py from-log smoke.log
 
   docker:
     name: web image builds and answers

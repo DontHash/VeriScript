@@ -1,5 +1,7 @@
 import { createMemo, createSignal, For, Show } from "solid-js";
+import { announce } from "../lib/announce";
 import { flagMeta } from "../lib/flags";
+import { TokenCrop } from "./TokenCrop";
 import type { QueueItem, Suggestion } from "../lib/types";
 import { type StudioState } from "../lib/studio-state";
 
@@ -16,6 +18,13 @@ export function CorrectionReview(props: { state: StudioState }) {
   const [active, setActive] = createSignal(0);
   const [edited, setEdited] = createSignal<Record<number, string>>({});
   const [share, setShare] = createSignal<Record<number, boolean>>({});
+
+  // Boxes are in the processed page's pixels. Multi-page runs do not say
+  // which page a token is on yet, so crops are shown for single pages only.
+  const cropSrc = () => {
+    const r = s.result();
+    return r && r.meta.pages_processed <= 1 ? r.files.restored : null;
+  };
 
   const clampActive = () => Math.min(active(), Math.max(0, rows().length - 1));
   const pendingCount = () => s.pendingCorrections().length;
@@ -60,6 +69,7 @@ export function CorrectionReview(props: { state: StudioState }) {
         corrected: row.text,
         action: "confirmed",
       });
+      announce(`Kept ${row.text}.`);
       move(1);
       return;
     }
@@ -71,6 +81,7 @@ export function CorrectionReview(props: { state: StudioState }) {
       corrected: text && text !== row.text ? text : row.text,
       action: text && text !== row.text ? "changed" : "confirmed",
     });
+    announce(text && text !== row.text ? `Changed ${row.text} to ${text}.` : `Kept ${row.text}.`);
     move(1);
   };
 
@@ -85,6 +96,7 @@ export function CorrectionReview(props: { state: StudioState }) {
       corrected: row.alt_text,
       action: "changed",
     });
+    announce(`Changed ${row.text} to ${row.alt_text}.`);
     move(1);
   };
 
@@ -102,6 +114,7 @@ export function CorrectionReview(props: { state: StudioState }) {
       suggested: suggestion.text,
       suggestion_source: suggestion.source,
     });
+    announce(`Changed ${row.text} to ${suggestion.text}.`);
     move(1);
   };
 
@@ -133,6 +146,7 @@ export function CorrectionReview(props: { state: StudioState }) {
         action,
       });
     }
+    announce(`Staged ${corrected} for ${targets.length} identical tokens.`);
     move(1);
   };
 
@@ -152,24 +166,38 @@ export function CorrectionReview(props: { state: StudioState }) {
           · {rows().length} still in the queue
         </span>
         <button
+          type="button"
           class="btn btn--primary btn--small"
           disabled={!pendingCount() || s.correcting()}
           onClick={() => void s.applyCorrections()}
         >
-          {s.correcting() ? "applying…" : `apply corrections (${pendingCount()})`}
+          {s.correcting() ? "Applying…" : `Apply corrections (${pendingCount()})`}
         </button>
       </div>
+
+      <details class="review__keys">
+        <summary>Keyboard shortcuts</summary>
+        <dl>
+          <dt><kbd>Enter</kbd></dt>
+          <dd>Stage what is in the box (unchanged text counts as Keep) and go to the next token</dd>
+          <dt><kbd>Esc</kbd></dt>
+          <dd>Undo your typing in this box</dd>
+          <dt><kbd>↑</kbd> <kbd>↓</kbd></dt>
+          <dd>Previous or next token</dd>
+        </dl>
+      </details>
 
       <Show when={s.health()?.limits.memory}>
         <p class="field__hint">
           Local correction memory is on: suggestions come from your own previous
           fixes and never leave this machine.{" "}
           <button
+            type="button"
             class="btn btn--ghost btn--small"
             disabled={s.correcting()}
             onClick={() => void s.clearMemory()}
           >
-            clear memory
+            Clear memory
           </button>
           <Show when={s.memoryCleared() !== null}>
             <span> removed {s.memoryCleared()} records.</span>
@@ -224,12 +252,16 @@ export function CorrectionReview(props: { state: StudioState }) {
                     }
                   >
                   <div class="review__main">
-                    <span class="review__original mono">{row.text}</span>
+                    <Show when={cropSrc() && row.bbox}>
+                      <TokenCrop src={cropSrc()!} bbox={row.bbox!} />
+                    </Show>
+                    <span class="review__original">{row.text}</span>
                     <input
                       id={key === null ? undefined : `review-input-${key}`}
-                      class="review__input mono"
+                      class="review__input"
                       value={draftText(row)}
-                      aria-label={`corrected reading of ${row.text}`}
+                      aria-label={`Corrected reading of ${row.text}`}
+                      aria-describedby={key === null ? undefined : `review-meta-${key}`}
                       onInput={(e) => {
                         if (key === null) return;
                         const value = e.currentTarget.value;
@@ -256,65 +288,94 @@ export function CorrectionReview(props: { state: StudioState }) {
                     <For each={row.suggestions ?? []}>
                       {(suggestion) => (
                         <button
+                          type="button"
                           class="btn btn--ghost btn--small"
                           title={suggestion.why ?? ""}
                           onClick={() => useSuggestion(row, suggestion)}
                         >
-                          → {suggestion.text}
+                          <span aria-hidden="true">→ </span>
+                          <span class="visually-hidden">Use suggestion </span>
+                          {suggestion.text}
                         </button>
                       )}
                     </For>
                     <Show when={row.alt_text}>
                       <button
+                        type="button"
                         class="btn btn--ghost btn--small"
                         onClick={() => useAlternative(row)}
                       >
-                        use alternative
+                        Use alternative{" "}
+                        <span class="deva">{row.alt_text}</span>
                       </button>
                     </Show>
                     <Show when={identicalFor(row).length > 0}>
                       <button
+                        type="button"
                         class="btn btn--ghost btn--small"
                         title="stage the same reading for every identical token"
                         onClick={() => applyToIdentical(row)}
                       >
-                        apply to {identicalFor(row).length + 1} identical
+                        Apply to {identicalFor(row).length + 1} identical
                       </button>
                     </Show>
                     <button
+                      type="button"
                       class="btn btn--ghost btn--small"
+                      aria-label={`Keep ${row.text}`}
                       onClick={() => stage(row, "confirmed")}
                     >
-                      keep
+                      Keep
                     </button>
                     <Show when={isStaged(row) && key !== null}>
                       <button
+                        type="button"
                         class="btn btn--ghost btn--small"
-                        onClick={() => s.unstageCorrection(key!)}
+                        aria-label={`Undo the change to ${row.text}`}
+                        onClick={() => {
+                          s.unstageCorrection(key!);
+                          announce(`Undid the change to ${row.text}.`);
+                        }}
                       >
-                        undo
+                        Undo
                       </button>
                     </Show>
                   </div>
-                  <div class="review__meta">
+                  <div class="review__meta" id={key === null ? undefined : `review-meta-${key}`}>
                     <For each={row.flags}>
                       {(flag) => {
                         const meta = flagMeta(flag);
                         return (
-                          <span class={`chip chip--${meta.tone}`}>
-                            <span class="chip__dot" />
+                          <span class={`flag flag--${meta.tone}`}>
+                            <span class="flag__dot" aria-hidden="true" />
                             {meta.label}
                           </span>
                         );
                       }}
                     </For>
                     <span class="num">
-                      conf {row.conf === null ? "—" : row.conf.toFixed(1)}
+                      confidence {row.conf === null ? "—" : row.conf.toFixed(1)}
                     </span>
                     <Show when={isStaged(row)}>
-                      <span class="review__done">staged</span>
+                      <span class="review__done">Staged</span>
                     </Show>
                   </div>
+                  <Show when={row.phone}>
+                    {(phone) => (
+                      <p class="review__phone field__hint">
+                        <Show
+                          when={phone().agrees}
+                          fallback={<>Changed on the phone (page {phone().page}): </>}
+                        >
+                          Confirmed on the phone (page {phone().page}):{" "}
+                        </Show>
+                        <Show when={phone().before !== phone().after} fallback={<span class="deva">“{phone().after}”</span>}>
+                          <span class="deva">“{phone().before}”</span> →{" "}
+                          <span class="deva">“{phone().after}”</span>
+                        </Show>
+                      </p>
+                    )}
+                  </Show>
                 </div>
                 </>
               );
@@ -344,9 +405,8 @@ export function CorrectionReview(props: { state: StudioState }) {
         <details class="review__export">
           <summary>Export corrections for training</summary>
           <p class="field__hint">
-            Tick only what you want to share. The archive contains those token
-            crops and their corrected text — no page images — and nothing
-            leaves your machine unless you download it yourself.
+            Choose what to include. The archive contains the token crops and corrected text, with
+            no page images.
           </p>
           <For each={s.corrections()}>
             {(correction) => (
@@ -362,19 +422,20 @@ export function CorrectionReview(props: { state: StudioState }) {
                   }
                 />
                 <span>
-                  <span class="mono">{correction.original || "—"}</span> →{" "}
-                  <span class="mono">{correction.corrected}</span>
+                  <span>{correction.original || "—"}</span> →{" "}
+                  <span>{correction.corrected}</span>
                 </span>
               </label>
             )}
           </For>
           <div class="results__actions">
             <button
+              type="button"
               class="btn btn--ghost btn--small"
               disabled={s.correcting()}
               onClick={() => void s.exportCorrections(shared())}
             >
-              build corrections.zip ({shared().length} shared)
+              Build corrections.zip ({shared().length} shared)
             </button>
             <Show when={s.exportResult()}>
               {(out) => (

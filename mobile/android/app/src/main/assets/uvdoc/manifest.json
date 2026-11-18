@@ -1,0 +1,35 @@
+{
+ "source": "UVDoc best_model.pkl, github.com/tanguymagne/UVDoc @ 4c9b82b (MIT)",
+ "input": {
+  "name": "image",
+  "shape": [
+   1,
+   3,
+   712,
+   488
+  ],
+  "rgb": "0..1 float, INTER_AREA"
+ },
+ "output": {
+  "name": "grid",
+  "shape": [
+   1,
+   2,
+   45,
+   31
+  ],
+  "range": "[-1, 1], align_corners"
+ },
+ "max_grid_difference_px_at_2000": {
+  "uvdoc.onnx": 0.002,
+  "uvdoc_fp16.onnx": 0.089
+ },
+ "files": {
+  "data/external/uvdoc/model/uvdoc.onnx": "89863ea6371f8d748662a4f1177c7035f7669f80f339297a66f48f9ce09717bc",
+  "mobile/android/app/src/main/assets/uvdoc/uvdoc_fp16.onnx": "5466fc59c3a4bd8ccecb5ef6e66530195fb830b1238226c870a074864185356f"
+ },
+ "bytes": {
+  "uvdoc.onnx": 31602474,
+  "uvdoc_fp16.onnx": 15830679
+ }
+}

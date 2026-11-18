@@ -84,7 +84,7 @@ def out_name(src: str, out_dir: str, suffix: str, ext: str, flat: bool,
 # document mode
 # ---------------------------------------------------------------------------
 
-DOC_EXTS = IMG_EXTS + (".pdf",)
+DOC_EXTS = IMG_EXTS + (".pdf", ".veriscript")
 
 
 def _list_doc_inputs(path: str, recursive: bool) -> List[str]:
@@ -113,6 +113,10 @@ def run_document_mode(args) -> int:
     except RuntimeError as e:
         raise SystemExit(str(e))
 
+    # Phone bundles are whole documents: every page unless --max-pages is given.
+    bundle_limit = args.max_pages or None
+    if args.max_pages is None:
+        args.max_pages = 1
     files = _list_doc_inputs(args.input, args.recursive)
     if args.limit:
         files = files[:args.limit]
@@ -158,7 +162,22 @@ def run_document_mode(args) -> int:
                 out_dir=args.output, stem=name,
                 make_pdf=not args.no_pdf, make_overlay=not args.no_overlay,
                 make_txt=not args.no_txt, make_json=True,
-                make_md=not getattr(args, "no_md", False))
+                make_md=not getattr(args, "no_md", False),
+                pdf_size=getattr(args, "pdf_size", "standard"),
+                pdf_password=getattr(args, "pdf_password_value", None),
+                flatten=getattr(args, "flatten", False))
+            choice = res.meta.get("flatten")
+            if choice:
+                print(f"  {name}: {'flattened page' if choice['used'] else 'photo as taken'} kept "
+                      f"(confidence {choice['confidence_photo']} photo, "
+                      f"{choice['confidence_flattened']} flattened)")
+            if not getattr(args, "no_tables", False):
+                from veriscript.document import tables as doc_tables
+                found = doc_tables.extract_tables(res.ocr.tokens)
+                written = doc_tables.export_tables(args.output, name, found)
+                res.outputs.update(written)
+                if found:
+                    print(f"  {name}: {len(found)} table(s) -> {os.path.basename(written['tables_xlsx'])}")
             apply_stats = None
             corrections_path = getattr(args, "apply_corrections", None)
             if corrections_path:
@@ -209,7 +228,37 @@ def run_document_mode(args) -> int:
 
     for src in files:
         try:
-            if src.lower().endswith(".pdf"):
+            if src.lower().endswith(".veriscript"):
+                # Phone -> desktop bundle (docs/TECH_UPGRADE_PLAN.md B4).
+                import json as _json
+
+                from veriscript.document import bundle as doc_bundle
+                from veriscript.document.export import write_searchable_pdf_pages
+                bun = doc_bundle.open_bundle(src)
+                stem = os.path.splitext(os.path.basename(src))[0]
+                phone = bun.phone_reading()
+                os.makedirs(args.output, exist_ok=True)
+                with open(os.path.join(args.output, f"{stem}_phone_reading.json"), "w",
+                          encoding="utf-8") as f:
+                    _json.dump(phone, f, ensure_ascii=False, indent=1)
+                print(f"  bundle '{bun.title or stem}': {len(bun.pages)} pages, "
+                      f"{phone['corrected_lines']} lines corrected on the phone")
+                page_results = []
+                for idx, page_img in doc_bundle.iter_images(bun, limit=bundle_limit):
+                    status, res = process(page_img, f"{stem}_p{idx:03d}", f"{src}#p{idx}")
+                    if status == "ok" and res is not None:
+                        page_results.append(res)
+                if page_results and not args.no_pdf:
+                    combined_pdf = os.path.join(args.output, f"{stem}_combined.pdf")
+                    write_searchable_pdf_pages(
+                        combined_pdf, [(r.display_bgr, r.ocr.tokens, 300) for r in page_results],
+                        title=bun.title or stem, size=getattr(args, "pdf_size", "standard"),
+                        password=getattr(args, "pdf_password_value", None))
+                    with open(os.path.join(args.output, f"{stem}_combined.txt"), "w",
+                              encoding="utf-8") as f:
+                        f.write("\n\n".join(r.ocr.text for r in page_results) + "\n")
+                    print(f"  combined: {os.path.basename(combined_pdf)} ({len(page_results)} pages)")
+            elif src.lower().endswith(".pdf"):
                 pdf_dpi = args.dpi or 200
                 pages = list(doc_data.pdf_to_pages(src, dpi=pdf_dpi))
                 if args.max_pages:
@@ -224,9 +273,33 @@ def run_document_mode(args) -> int:
                 pdf_deva_lines = getattr(args, "deva_lines", "auto")
                 if pdf_deva_lines == "auto":
                     pdf_deva_lines = "off"
+                # Born-digital pages with a trustworthy text layer keep their
+                # text and original page (docs/TECH_UPGRADE_PLAN.md E2).
+                from veriscript.document import pdf_text
+                layers = (pdf_text.check_pages(src, [i for i, _, _ in pages],
+                                               args.lang, dpi=pdf_dpi)
+                          if getattr(args, "pdf_text", "auto") != "off" else {})
                 for idx, page_img, _gt in pages:
-                    status, res = process(page_img, f"{stem}_p{idx:03d}",
-                                          f"{src}#p{idx}",
+                    name = f"{stem}_p{idx:03d}"
+                    layer = layers.get(idx)
+                    if layer is not None and layer.usable:
+                        res = pdf_text.document_result(
+                            layer, page_img, src, out_dir=args.output, stem=name,
+                            make_pdf=not args.no_pdf, make_overlay=not args.no_overlay,
+                            make_txt=not args.no_txt, make_json=True,
+                            make_md=not getattr(args, "no_md", False))
+                        ok += 1
+                        records.append({"src": f"{src}#p{idx}", "name": name,
+                                        "status": "ok", "text_source": "pdf",
+                                        "tokens": len(res.ocr.tokens),
+                                        "outputs": res.outputs})
+                        print(f"  {name}: text taken from the PDF "
+                              f"({len(res.ocr.tokens)} lines, nothing to review)")
+                        page_results.append(res)
+                        continue
+                    if layer is not None:
+                        print(f"  {name}: OCR ({layer.reason})")
+                    status, res = process(page_img, name, f"{src}#p{idx}",
                                           deva_lines=pdf_deva_lines)
                     if status == "ok" and res is not None:
                         page_results.append(res)
@@ -234,11 +307,23 @@ def run_document_mode(args) -> int:
                     from veriscript.document.export import (write_combined_transcript_md,
                                                  write_searchable_pdf_pages)
                     combined_pdf = os.path.join(args.output, f"{stem}_combined.pdf")
-                    write_searchable_pdf_pages(
-                        combined_pdf,
-                        [(r.display_bgr, r.ocr.tokens, pdf_dpi)
-                         for r in page_results],
-                        title=stem)
+                    originals = {r.ocr.meta.get("page_index"): r for r in page_results
+                                 if r.ocr.backend == "pdf-text-layer"}
+                    page_pdfs = [(src, r.ocr.meta["page_index"])
+                                 if r.ocr.backend == "pdf-text-layer" else r.outputs.get("pdf")
+                                 for r in page_results]
+                    if originals and all(page_pdfs):
+                        # Keep original pages: originals from the source PDF,
+                        # OCR'd pages from their per-page PDFs.
+                        pdf_text.merge_pdfs(combined_pdf, page_pdfs,
+                                           password=getattr(args, "pdf_password_value", None))
+                    else:
+                        write_searchable_pdf_pages(
+                            combined_pdf,
+                            [(r.display_bgr, r.ocr.tokens, pdf_dpi)
+                             for r in page_results],
+                            title=stem, size=getattr(args, "pdf_size", "standard"),
+                        password=getattr(args, "pdf_password_value", None))
                     combined_txt = os.path.join(args.output, f"{stem}_combined.txt")
                     with open(combined_txt, "w", encoding="utf-8") as f:
                         f.write("\n\n".join(r.ocr.text for r in page_results) + "\n")
@@ -289,11 +374,62 @@ def run_document_mode(args) -> int:
     return 1 if failed else 0
 
 
+def run_video_mode(args) -> int:
+    from veriscript.document.video import VideoOptions, export_video_pdf, extract_video_pages
+
+    try:
+        capture = extract_video_pages(args.input, args.output, VideoOptions(
+            layout=args.video_layout, hold_seconds=args.video_hold,
+            max_pages=args.video_max_pages, max_seconds=args.video_max_seconds,
+            clean_fingers=getattr(args, "video_clean_fingers", False)))
+        print(f"[cli] captured {len(capture['pages'])} pages")
+        for warning in capture["warnings"]:
+            print(f"  review: {warning}")
+        if not args.video_review_only:
+            # --video-pdf is canonical; --video-searchable maps onto it for
+            # compatibility. Digital wins when both are requested.
+            mode = args.video_pdf or ("searchable" if args.video_searchable
+                                      else "clean")
+            path = export_video_pdf(args.output, capture["pages"],
+                                    searchable=mode == "searchable",
+                                    digital=mode == "digital",
+                                    lang=args.lang, backend=args.ocr)
+            print(f"[cli] {mode} PDF: {path}")
+        return 0
+    except (ValueError, OSError, RuntimeError) as exc:
+        print(f"[cli] video scan failed: {exc}", file=sys.stderr)
+        return 1
+
+
+def _pdf_password(args):
+    """E5: the password comes from a prompt or an environment variable,
+    never from the command line itself (other programs can read that)."""
+    from veriscript.document.protect import PasswordError, check_password
+
+    if getattr(args, "pdf_password_env", None):
+        value = os.environ.get(args.pdf_password_env)
+        if not value:
+            raise SystemExit(f"environment variable {args.pdf_password_env} is empty or not set")
+    elif getattr(args, "pdf_password_prompt", False):
+        import getpass
+        value = getpass.getpass("PDF password: ")
+        if value != getpass.getpass("Type it again: "):
+            raise SystemExit("the two passwords differ")
+    else:
+        return None
+    if getattr(args, "pdf_size", "standard") == "archive":
+        raise SystemExit("archive PDFs (PDF/A) cannot have a password; use --pdf-size standard or small")
+    try:
+        return check_password(value)
+    except PasswordError as exc:
+        raise SystemExit(str(exc)) from None
+
+
 def main():
     configure_logging()
     ap = argparse.ArgumentParser(description="Batch SR upscaler / document restore")
-    ap.add_argument("--mode", choices=["photo", "document"], default="photo")
-    ap.add_argument("--input", required=True, help="file or folder (document mode also accepts .pdf)")
+    ap.add_argument("--mode", choices=["photo", "document", "video"], default="photo")
+    ap.add_argument("--input", required=True, help="file or folder; document mode accepts PDF, video mode accepts a book recording")
     ap.add_argument("--output", required=True, help="output folder")
     ap.add_argument("--model", default="auto",
                     help="photo mode: auto | <path>.pth | <path>.onnx | ncnn:<name> | bicubic | lanczos")
@@ -337,9 +473,10 @@ def main():
                      default="flagged", dest="digit_verifier_scope",
                      help="flagged (default): re-read only tokens the first "
                           "pass suspects; all: every digit token (costlier)")
-    doc.add_argument("--max-pages", type=int, default=1, dest="max_pages",
+    doc.add_argument("--max-pages", type=int, default=None, dest="max_pages",
                      help="max pages per PDF input (default 1; 0 = all pages, "
-                          "also writes <stem>_combined.pdf/.txt)")
+                          "also writes <stem>_combined.pdf/.txt); phone bundles "
+                          "are read whole unless this is given")
     doc.add_argument("--no-reading-order", action="store_true", dest="no_reading_order",
                      help="skip XY-cut reading-order repair for column layouts")
     doc.add_argument("--rotate", choices=["auto", "off"], default="auto",
@@ -392,13 +529,61 @@ def main():
                           ".json plus {stem}_corrections.json; unmatched "
                           "entries are reported, never silently dropped")
     doc.add_argument("--no-pdf", action="store_true", dest="no_pdf")
+    doc.add_argument("--no-tables", action="store_true", dest="no_tables",
+                     help="do not write <name>_tables.xlsx/.csv for detected tables")
+    doc.add_argument("--flatten", nargs="?", const="pick", default=False,
+                     choices=["pick", "always"], dest="flatten",
+                     help="straighten curved or folded phone photos (needs the local "
+                          "UVDoc model, docs/EXTERNAL_ASSETS.md): 'pick' (default) reads "
+                          "both and keeps the more confident reading, 'always' reads "
+                          "only the flattened page")
+    doc.add_argument("--pdf-size", choices=["standard", "small", "archive"],
+                     default="standard", dest="pdf_size",
+                     help="searchable-PDF page images: standard (JPEG, full "
+                          "resolution), small (<=150 DPI) or archive (lossless, "
+                          "PDF/A-2b); "
+                          "the text layer is the same in all three")
+    pw = doc.add_mutually_exclusive_group()
+    pw.add_argument("--pdf-password", action="store_true", dest="pdf_password_prompt",
+                    help="protect the searchable PDFs with a password (AES-256), "
+                         "asked for at a prompt; not with --pdf-size archive")
+    pw.add_argument("--pdf-password-env", metavar="VAR", default=None,
+                    help="like --pdf-password, but read the password from "
+                         "environment variable VAR (for scripts)")
+    doc.add_argument("--pdf-text", choices=["auto", "off"], default="auto",
+                     dest="pdf_text",
+                     help="PDF input: keep a page's own text when it is "
+                          "trustworthy (auto, default) or always OCR (off)")
     doc.add_argument("--no-overlay", action="store_true", dest="no_overlay")
     doc.add_argument("--no-txt", action="store_true", dest="no_txt")
     doc.add_argument("--no-md", action="store_true", dest="no_md",
                      help="skip the Markdown transcript (.md)")
+    video = ap.add_argument_group("video book scan")
+    video.add_argument("--video-layout", choices=["auto", "single", "spread"], default="auto",
+                       help="spread: split each view into left/right PDF pages; auto uses aspect ratio")
+    video.add_argument("--video-hold", type=float, default=0.75,
+                       help="minimum steady view in seconds (default .75)")
+    video.add_argument("--video-max-pages", type=int, default=150)
+    video.add_argument("--video-max-seconds", type=float, default=600)
+    video.add_argument("--video-searchable", action="store_true",
+                       help="run existing OCR on captured pages (slower); default is an image PDF")
+    video.add_argument("--video-pdf", choices=["clean", "searchable", "digital"],
+                       default=None,
+                       help="export mode: clean pristine image PDF (default), "
+                            "searchable image + invisible OCR layer, or digital "
+                            "word-style text PDF re-typeset from OCR")
+    video.add_argument("--video-clean-fingers", action="store_true", dest="video_clean_fingers",
+                       help="blank fingers and thumbs at page edges (never text); "
+                            "off by default: it can also blank colour print at an edge")
+    video.add_argument("--video-review-only", action="store_true",
+                       help="save selected page images + capture.json without exporting a PDF")
     args = ap.parse_args()
 
+    if args.mode == "video":
+        sys.exit(run_video_mode(args))
+
     if args.mode == "document":
+        args.pdf_password_value = _pdf_password(args)
         sys.exit(run_document_mode(args))
 
     if not os.path.exists(args.input):

@@ -127,7 +127,11 @@ def run_document_pipeline(img_bgr: np.ndarray, *, backend: Optional[str] = None,
                           make_pdf: bool = True, make_overlay: bool = True,
                           make_txt: bool = True, make_json: bool = True,
                           make_md: bool = True,
-                          conf_threshold: float = 60.0) -> DocumentResult:
+                          conf_threshold: float = 60.0,
+                          pdf_size: str = "standard",
+                          pdf_password: Optional[str] = None,
+                          title: Optional[str] = None,
+                          flatten=False) -> DocumentResult:
     """`primary_stream` ("raw"|"restored", None = RECOMMENDED_STREAM) exists
     for evaluation A/Bs; production callers leave it unset.
 
@@ -156,9 +160,31 @@ def run_document_pipeline(img_bgr: np.ndarray, *, backend: Optional[str] = None,
     prefers over the engine reading becomes `context_conflict` plus a
     suggestion. Flag-only, deterministic, opt-in until its frozen gate.
 
+    `flatten` straightens a curved or folded phone photo with UVDoc
+    (veriscript/document/dewarp.py); it needs the local model and does
+    nothing without it. True or "pick": read the photo and the flattened page
+    and keep the reading the engine is more confident in (about twice the
+    OCR time). "always": read only the flattened page. Opt-in; measured on
+    DocUNet's English photos only (docs/TECH_UPGRADE_PLAN.md F1).
+
     `digit_confusions` appends measured digit-confusion chips (9 vs 1/2/0,
     ...) to the riskiest queued digit tokens. Suggestion-only: no flags, no
     text changes, no queue order changes - it cannot move frozen metrics."""
+    if flatten:
+        from veriscript.document import dewarp
+        if flatten == "always":
+            img_bgr = dewarp.maybe_flatten(img_bgr, True)
+        elif dewarp.available():
+            options = dict(locals())
+            for name in ("img_bgr", "flatten", "dewarp"):
+                options.pop(name, None)
+
+            def read(image, write: bool):
+                kw = options if write else {**options, "out_dir": None, "make_pdf": False,
+                                            "make_overlay": False, "make_txt": False,
+                                            "make_json": False, "make_md": False}
+                return run_document_pipeline(image, **kw)
+            return dewarp.pick_reading(img_bgr, read)
     t0 = time.time()
     backend = pick_backend(backend)
     be = get_backend(backend)
@@ -325,7 +351,8 @@ def run_document_pipeline(img_bgr: np.ndarray, *, backend: Optional[str] = None,
         outputs = export_document_outputs(
             out_dir, stem, p.display, result, dpi=dpi,
             make_pdf=make_pdf, make_overlay=make_overlay, make_txt=make_txt,
-            make_json=make_json, make_md=make_md, overlay_source=p.display)
+            make_json=make_json, make_md=make_md, overlay_source=p.display,
+            pdf_size=pdf_size, pdf_password=pdf_password, title=title)
 
     meta = {
         "seconds": round(time.time() - t0, 2),

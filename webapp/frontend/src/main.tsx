@@ -1,12 +1,14 @@
 import { render } from "solid-js/web";
 
 import "./styles/fonts.css";
+import "./styles/palette.generated.css";
 import "./styles/tokens.css";
 import "./styles/base.css";
 import "./styles/components.css";
 import "./styles/pages.css";
 
 import { App } from "./App";
+import { applyStoredTheme } from "./lib/theme";
 
 const root = document.getElementById("root");
 if (!root) throw new Error("#root missing");
@@ -16,5 +18,6 @@ if (!root) throw new Error("#root missing");
 // `script-src 'self'`, so inline removal is blocked (regression: the fallback
 // stayed in the DOM and rendered above the app).
 document.getElementById("seo-fallback")?.remove();
+applyStoredTheme();
 
 render(() => <App />, root);

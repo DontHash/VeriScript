@@ -28,6 +28,16 @@ export interface QueueItem {
   suggestions?: Suggestion[];
   /** Review section (Appendix AO): numbers first, text flags after. */
   section?: "number" | "text" | null;
+  /** B4: what the phone's user corrected or confirmed for this word. */
+  phone?: PhoneEvidence | null;
+}
+
+export interface PhoneEvidence {
+  /** True when the desktop reads the word as the phone's user left it. */
+  agrees: boolean;
+  page: number;
+  before: string;
+  after: string;
 }
 
 export interface RunMeta {
@@ -47,6 +57,8 @@ export interface RunMeta {
   pages_processed: number;
   pages_capped: boolean;
   page_cap: number;
+  /** Set when the input was a bundle exported by the phone app. */
+  from_phone?: { pages: number; corrected_lines: number; confirmed_lines: number } | null;
 }
 
 export interface RunFiles {
@@ -59,6 +71,9 @@ export interface RunFiles {
   combined_pdf?: string;
   combined_txt?: string;
   combined_md?: string;
+  tables_xlsx?: string;
+  tables_csv?: string;
+  phone_reading?: string;
   corrected_pdf?: string;
   corrected_txt?: string;
   corrected_md?: string;
@@ -75,6 +90,7 @@ export interface RunPayload {
   transcript: string;
   status_line: string;
   files: RunFiles;
+  /** Seconds the server keeps the files; 0 = until deleted (desktop). */
   expires_in: number;
 }
 
@@ -113,15 +129,56 @@ export interface ExportResponse {
   shared: number;
 }
 
+/** GET /api/jobs/{id}: a document run in the background queue. */
+export interface JobStatus {
+  job_id: string;
+  status: "queued" | "running" | "done" | "failed" | "cancelled";
+  /** Plain-language step, e.g. "Reading page 3 of 12". */
+  stage: string;
+  page: number;
+  pages: number;
+  /** 1 = next to run; only while queued. */
+  position?: number;
+  cancel_requested: boolean;
+  elapsed: number;
+  result?: RunPayload;
+  error?: string;
+  error_status?: number;
+}
+
+/** GET /api/library: one kept document (desktop app only). */
+export interface LibraryDoc {
+  run_id: string;
+  title: string;
+  /** Unix seconds. */
+  created: number;
+  pages: number;
+  flagged: number;
+  input_kind: "image" | "pdf";
+  lang?: string;
+  corrected: boolean;
+}
+
 export interface Health {
   ok: boolean;
   version: string;
+  /** "local": runs on this computer (desktop app); "demo": shared server */
+  mode?: "local" | "demo";
   busy: boolean;
   limits: {
     max_upload_mb: number;
+    /** F1: curved-page flattening is installed. */
+    flatten?: boolean;
+    video_upload_mb: number;
+    video_max_pages: number;
+    video_max_seconds: number;
+    pages_per_client: number;
     max_image_megapixels: number;
+    /** PDF pages per run with "all pages"; 0 = no limit (desktop). */
     max_pages: number;
+    /** 0 = results are kept until deleted (desktop). */
     ttl_minutes: number;
+    queued?: number;
     rate_max: number;
     rate_window_s: number;
     auth: boolean;
@@ -131,3 +188,5 @@ export interface Health {
 
 export type Lang = "ne" | "hi" | "en";
 export type OcrEngine = "auto" | "rapidocr" | "tesseract";
+/** Searchable-PDF page-image preset; the text layer is identical in all. */
+export type PdfSize = "standard" | "small" | "archive";

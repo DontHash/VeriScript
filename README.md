@@ -79,7 +79,16 @@ python -m veriscript --mode document --input report.pdf --output out/report
 
 # Photo upscaling (shares the same CLI/app)
 python cli.py --mode photo --input photos/ --output out/upscaled --scale 4
+
+# Page-turning video: each spread becomes separate left and right PDF pages
+python cli.py --mode video --input book.mp4 --output out/book --video-layout spread
 ```
+
+Experimental **Book video** capture is also available in `/studio`: upload a
+recording, review the selected pages, exclude or reorder them, then export an
+image PDF or add searchable text through the existing OCR pipeline. Single-page
+recordings work too. See [the recording guide](docs/VIDEO_SCAN.md) for limits,
+CLI options, and the real-book acceptance check.
 
 Useful knobs (all default to the measured best configuration):
 
@@ -87,6 +96,14 @@ Useful knobs (all default to the measured best configuration):
 --ocr rapidocr|tesseract     --lang en|ne|hi       --deskew
 --no-reading-order           --rotate auto|off     --repass-digits/--no-repass-digits
 --digit-verifier off|bodhan  (optional second-model digit check)
+--pdf-size standard|small|archive  (searchable-PDF page images: JPEG at full
+                              resolution, <=150 DPI, or lossless PDF/A-2b; same
+                              text layer)
+--no-tables                  (skip <name>_tables.xlsx/.csv: detected tables as a
+                              spreadsheet, uncertain cells highlighted + listed)
+--pdf-text auto|off          (PDF input: keep a page's own text when it is
+                              trustworthy; damaged or legacy-font Nepali text
+                              layers and scans are OCR'd either way)
 --no-pdf --no-overlay --no-txt --no-md
 ```
 
@@ -110,6 +127,22 @@ document-only — see [docs/PLAN_WEB_FULL.md](docs/PLAN_WEB_FULL.md).
 For JS/TS integrations there is a typed HTTP client in
 [`packages/veriscript-client`](packages/veriscript-client) (npm:
 `veriscript-client`; not published yet).
+
+### Desktop app
+
+The same studio in a native window ([desktop/](desktop/README.md), Tauri). It
+starts the local server on a random `127.0.0.1` port with a per-launch secret,
+says "processed on this computer" throughout, and stops the server when the
+window closes. From a checkout:
+
+```bash
+cd webapp/frontend && npm ci && npm run build && cd ../..
+cd desktop && npm ci && npm run dev
+```
+
+Installers (with the server frozen as a sidecar) are built by
+`desktop/scripts/build_sidecar.py` and `npm run build`. See the release
+checklist in [desktop/README.md](desktop/README.md).
 
 ### Outputs (per page)
 
@@ -209,6 +242,8 @@ veriscript/               the product package
   branding.py, logging_setup.py, lexicon.py, calibration.py
 cli.py                    compatibility launcher for `python -m veriscript`
 webapp/                   the studio: FastAPI backend (vvweb/) + SolidJS frontend
+desktop/                  desktop app: Tauri shell around the local studio
+mobile/                   Android app (Flutter, on-device OCR)
 deva_crnn/                training package for the line reader (repo tooling)
 evals/harness/            evaluation harnesses (frozen sets, metrics, gates)
 evals/manifests/          content-hash frozen evaluation sets

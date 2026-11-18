@@ -1,0 +1,5 @@
+node_modules/
+src-tauri/target/
+# PyInstaller sidecar output (built by scripts/build_sidecar.py)
+src-tauri/binaries/
+src-tauri/gen/

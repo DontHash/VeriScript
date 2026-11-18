@@ -1,18 +1,101 @@
 /** Studio state — one factory, used by the homepage hero and the full studio
  *  page, so the product behaves identically wherever it is embedded. */
-import { createMemo, createSignal, onCleanup } from "solid-js";
-import { clearMemory as clearMemoryApi, correctRun, exportRunCorrections, fetchHealth, runRestore } from "./api";
+import { createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
+import { announce } from "./announce";
+import {
+  clearMemory as clearMemoryApi,
+  correctRun,
+  exportRunCorrections,
+  fetchRunSummary,
+  runJob,
+  type RestoreOptions,
+} from "./api";
+import { refreshHealth, retentionText, useHealth } from "./health";
 import type {
   CorrectionInput,
   CorrectionStats,
   ExportResponse,
   Health,
+  JobStatus,
   Lang,
   OcrEngine,
+  PdfSize,
   RunPayload,
 } from "./types";
 
 export type StudioPhase = "idle" | "running" | "done" | "error";
+
+/** One file in a desktop batch (docs/TECH_UPGRADE_PLAN.md B2). */
+export interface BatchItem {
+  file: File;
+  status: "waiting" | "reading" | "done" | "failed" | "stopped";
+  /** What the reader is doing, or why it failed. */
+  stage: string;
+  runId?: string;
+}
+
+/** Accepted inputs; mirrors the server's validate_upload. */
+export const ACCEPTED_EXTENSIONS = [".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff", ".pdf"];
+/** Document bundle exported by the phone app (desktop only). */
+export const BUNDLE_EXTENSION = ".veriscript";
+
+export const acceptedExtensions = (desktop: boolean) =>
+  desktop ? [...ACCEPTED_EXTENSIONS, BUNDLE_EXTENSION] : ACCEPTED_EXTENSIONS;
+
+/** Why a file cannot be read, or null when it can. */
+export function fileProblem(file: File, maxMb: number, desktop = false): string | null {
+  const name = file.name.toLowerCase();
+  if (name.endsWith(BUNDLE_EXTENSION) && !desktop) {
+    return `${file.name} is a phone bundle. Open it in VeriScript Desktop.`;
+  }
+  if (!acceptedExtensions(desktop).some((ext) => name.endsWith(ext))) {
+    return desktop
+      ? `${file.name} is not a supported file. Use a PNG, JPG, WebP, TIFF, PDF or a phone bundle (.veriscript).`
+      : `${file.name} is not a supported file. Use a PNG, JPG, WebP, TIFF or PDF.`;
+  }
+  if (file.size === 0) return `${file.name} is empty.`;
+  if (file.size > maxMb * 1024 * 1024) {
+    return `${file.name} is larger than ${maxMb} MB. Use a smaller file, or split the PDF into parts.`;
+  }
+  return null;
+}
+
+/** The last finished run, kept in this browser so a refresh does not lose
+ *  the review. Per-viewer convenience only; the server copy expires. */
+const SAVED_KEY = "veriscript.studio.lastRun.v1";
+interface SavedRun {
+  savedAt: number;
+  result: RunPayload;
+  corrections: CorrectionInput[];
+  appliedSigs: Record<number, string>;
+}
+
+function loadSavedRun(): SavedRun | null {
+  try {
+    const raw = window.localStorage.getItem(SAVED_KEY);
+    if (!raw) return null;
+    const saved = JSON.parse(raw) as SavedRun;
+    // expires_in 0: the server keeps results until they are deleted.
+    const ttl = saved.result?.expires_in ?? 0;
+    const expired = ttl > 0 && Date.now() >= saved.savedAt + ttl * 1000;
+    if (!saved.result?.run_id || expired) {
+      window.localStorage.removeItem(SAVED_KEY);
+      return null;
+    }
+    return saved;
+  } catch {
+    return null;
+  }
+}
+
+function storeSavedRun(saved: SavedRun | null) {
+  try {
+    if (saved) window.localStorage.setItem(SAVED_KEY, JSON.stringify(saved));
+    else window.localStorage.removeItem(SAVED_KEY);
+  } catch {
+    /* storage full or blocked: the run simply is not restored */
+  }
+}
 
 export function createStudioState() {
   const [file, setFile] = createSignal<File | null>(null);
@@ -25,12 +108,16 @@ export function createStudioState() {
   const [wantPdf, setWantPdf] = createSignal(true);
   const [wantTxt, setWantTxt] = createSignal(true);
   const [wantMd, setWantMd] = createSignal(true);
-  const [advancedOpen, setAdvancedOpen] = createSignal(true);
+  const [pdfSize, setPdfSize] = createSignal<PdfSize>("standard");
+  const [flatten, setFlatten] = createSignal(false);
+  const [advancedOpen, setAdvancedOpen] = createSignal(false);
   const [phase, setPhase] = createSignal<StudioPhase>("idle");
   const [result, setResult] = createSignal<RunPayload | null>(null);
   const [error, setError] = createSignal<string | null>(null);
   const [elapsed, setElapsed] = createSignal(0);
-  const [health, setHealth] = createSignal<Health | null>(null);
+  /** Latest job status while a run is in flight (queue position, page n of m). */
+  const [job, setJob] = createSignal<JobStatus | null>(null);
+  const health = useHealth();
   const [inputUrl, setInputUrl] = createSignal<string | null>(null);
   const [showBoxes, setShowBoxes] = createSignal(true);
   const [corrections, setCorrections] = createSignal<CorrectionInput[]>([]);
@@ -44,6 +131,17 @@ export function createStudioState() {
   // pending count must ignore what was already sent — otherwise "apply" stays
   // enabled and re-posts the same corrections.
   const [appliedSigs, setAppliedSigs] = createSignal<Record<number, string>>({});
+  /** When the shown result came back from a previous visit (ms), else null. */
+  const [restoredAt, setRestoredAt] = createSignal<number | null>(null);
+  /** Desktop: several files read one after another (B2). Empty = single file. */
+  const [batch, setBatch] = createSignal<BatchItem[]>([]);
+  const updateItem = (i: number, patch: Partial<BatchItem>) =>
+    setBatch((items) => items.map((item, j) => (j === i ? { ...item, ...patch } : item)));
+  /** Title of a document reopened from the desktop library, else null. */
+  const [openedTitle, setOpenedTitle] = createSignal<string | null>(null);
+  /** A short notice about the last file choice (e.g. extra files ignored). */
+  const [notice, setNotice] = createSignal<string | null>(null);
+  let savedAt = Date.now();
 
   const correctionSig = (c: CorrectionInput) =>
     [c.index, c.corrected, c.action, c.suggested ?? "", c.suggestion_source ?? ""].join("\u0000");
@@ -61,18 +159,90 @@ export function createStudioState() {
   };
 
   let timer: number | undefined;
+  let controller: AbortController | undefined;
 
-  void fetchHealth()
-    .then(setHealth)
-    .catch(() => setHealth(null));
+  // Bring back the last result after a refresh or a closed tab.
+  const saved = loadSavedRun();
+  if (saved) {
+    savedAt = saved.savedAt;
+    setResult(saved.result);
+    setCorrections(saved.corrections ?? []);
+    setAppliedSigs(saved.appliedSigs ?? {});
+    setRestoredAt(saved.savedAt);
+    setPhase("done");
+  }
+
+  createEffect(() => {
+    const r = result();
+    storeSavedRun(
+      phase() === "done" && r
+        ? { savedAt, result: r, corrections: corrections(), appliedSigs: appliedSigs() }
+        : null,
+    );
+  });
+
+  // Staged corrections live only in this page until they are applied.
+  onMount(() => {
+    const guard = (e: BeforeUnloadEvent) => {
+      if (pendingCorrections().length === 0) return;
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", guard);
+    onCleanup(() => window.removeEventListener("beforeunload", guard));
+  });
 
   onCleanup(() => {
     if (timer) window.clearInterval(timer);
+    controller?.abort();
     if (inputUrl()) URL.revokeObjectURL(inputUrl()!);
   });
 
+  const maxUploadMb = () => health()?.limits.max_upload_mb ?? 12;
+
+  /** Take the first file; say so when more were offered, and refuse files
+   *  the server would reject before uploading them. */
+  const chooseFiles = (files: File[]) => {
+    const [first] = files;
+    if (!first) return;
+    // The desktop app reads several files in a row; the shared demo keeps to
+    // one at a time (its daily page quota).
+    if (files.length > 1 && health()?.mode === "local") {
+      const usable = files.filter((f) => !fileProblem(f, maxUploadMb(), true));
+      const skipped = files.length - usable.length;
+      if (usable.length > 1) {
+        chooseFile(usable[0]);
+        setFile(null);
+        setInputUrl(null);
+        setBatch(usable.map((f) => ({ file: f, status: "waiting", stage: "Waiting" })));
+        setNotice(
+          skipped
+            ? `${skipped} ${skipped === 1 ? "file is" : "files are"} not a supported image or PDF and will be skipped.`
+            : null,
+        );
+        return;
+      }
+    }
+    setBatch([]);
+    const problem = fileProblem(first, maxUploadMb(), health()?.mode === "local");
+    if (problem) {
+      setNotice(null);
+      setError(problem);
+      setPhase("error");
+      return;
+    }
+    chooseFile(first);
+    setNotice(
+      files.length > 1
+        ? `Using ${first.name}. The studio reads one image or PDF at a time; ${files.length - 1} other ${files.length === 2 ? "file was" : "files were"} not added.`
+        : null,
+    );
+  };
+
   const chooseFile = (next: File) => {
     if (inputUrl()) URL.revokeObjectURL(inputUrl()!);
+    setNotice(null);
+    setRestoredAt(null);
     setInputUrl(next.type.startsWith("image/") ? URL.createObjectURL(next) : null);
     setFile(next);
     setResult(null);
@@ -81,8 +251,27 @@ export function createStudioState() {
     resetCorrections();
   };
 
+  /** Show a kept result from the desktop library. */
+  const openKept = (payload: RunPayload, title: string, createdMs: number) => {
+    controller?.abort();
+    resetCorrections();
+    savedAt = createdMs;
+    setFile(null);
+    setInputUrl(null);
+    setError(null);
+    setNotice(null);
+    setResult(payload);
+    setRestoredAt(createdMs);
+    setOpenedTitle(title);
+    setPhase("done");
+    announce(`Opened ${title} from your library.`);
+  };
+
   const clearFile = () => {
+    setBatch([]);
     if (inputUrl()) URL.revokeObjectURL(inputUrl()!);
+    setNotice(null);
+    setRestoredAt(null);
     setInputUrl(null);
     setFile(null);
     setResult(null);
@@ -103,37 +292,149 @@ export function createStudioState() {
     }
   };
 
-  const start = async () => {
-    const f = file();
-    if (!f || phase() === "running") return;
+  const options = (): RestoreOptions => ({
+    lang: lang(),
+    deskew: deskew(),
+    ocr: ocr(),
+    allPages: allPages(),
+    autoRotate: autoRotate(),
+    pdfSize: pdfSize(),
+    flatten: flatten() && !!health()?.limits.flatten,
+    outputs: { overlay: wantOverlay(), pdf: wantPdf(), txt: wantTxt(), md: wantMd() },
+  });
+
+  /** Read every batch file in turn. Cancel stops the current file on the
+   *  server and skips the rest; finished files stay in the library. */
+  const runBatch = async () => {
+    const items = batch();
+    setOpenedTitle(null);
     setPhase("running");
     setError(null);
     setElapsed(0);
+    controller = new AbortController();
+    const signal = controller.signal;
+    const startedAt = performance.now();
+    timer = window.setInterval(() => setElapsed((performance.now() - startedAt) / 1000), 100);
+    announce(`Reading ${items.length} files, one after another.`);
+    let done = 0;
+    let failed = 0;
+    try {
+      for (let i = 0; i < items.length; i++) {
+        if (signal.aborted) break;
+        updateItem(i, { status: "reading", stage: "Uploading…" });
+        try {
+          const payload = await runJob(items[i].file, options(), {
+            signal,
+            onProgress: (status) => updateItem(i, { stage: jobLine(status) }),
+          });
+          updateItem(i, { status: "done", stage: "Done", runId: payload.run_id });
+          savedAt = Date.now();
+          resetCorrections();
+          setResult(payload);
+          done++;
+          announce(`${items[i].file.name} is done, ${i + 1} of ${items.length}.`);
+        } catch (e) {
+          if (e instanceof DOMException && e.name === "AbortError") {
+            updateItem(i, { status: "stopped", stage: "Stopped" });
+            break;
+          }
+          failed++;
+          updateItem(i, {
+            status: "failed",
+            stage: e instanceof Error ? e.message : "This file could not be read.",
+          });
+        }
+      }
+    } finally {
+      setBatch((list) =>
+        list.map((item) => (item.status === "waiting" ? { ...item, status: "stopped", stage: "Skipped" } : item)),
+      );
+      controller = undefined;
+      setJob(null);
+      if (timer) window.clearInterval(timer);
+      setPhase(result() ? "done" : "idle");
+      refreshHealth();
+      const stopped = items.length - done - failed;
+      announce(
+        `${done} of ${items.length} files done` +
+          (failed ? `, ${failed} failed` : "") +
+          (stopped ? `, ${stopped} stopped` : "") +
+          ".",
+      );
+    }
+  };
+
+  /** Show one finished batch file in the results area. */
+  const showBatchResult = async (runId: string) => {
+    try {
+      const kept = await fetchRunSummary(runId);
+      const created = (kept.meta as { created?: number }).created;
+      openKept(kept, kept.title, created ? created * 1000 : Date.now());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "That result could not be opened.");
+    }
+  };
+
+  const clearBatch = () => {
+    if (phase() === "running") return;
+    setBatch([]);
+    setNotice(null);
+  };
+
+  const start = async () => {
+    if (batch().length > 0 && phase() !== "running") return runBatch();
+    const f = file();
+    if (!f || phase() === "running") return;
+    setOpenedTitle(null);
+    setPhase("running");
+    setError(null);
+    setElapsed(0);
+    setJob(null);
+    controller = new AbortController();
+    announce(`Reading ${f.name}. This can take a minute.`);
     const startedAt = performance.now();
     timer = window.setInterval(() => setElapsed((performance.now() - startedAt) / 1000), 100);
     try {
-      const payload = await runRestore(f, {
-        lang: lang(),
-        deskew: deskew(),
-        ocr: ocr(),
-        allPages: allPages(),
-        autoRotate: autoRotate(),
-        outputs: {
-          overlay: wantOverlay(),
-          pdf: wantPdf(),
-          txt: wantTxt(),
-          md: wantMd(),
+      let lastStage = "";
+      const payload = await runJob(f, options(), {
+        signal: controller.signal,
+        onProgress: (status) => {
+          setJob(status);
+          // Announce page changes for screen readers, not every poll.
+          if (status.pages > 1 && status.stage !== lastStage) {
+            lastStage = status.stage;
+            announce(status.stage);
+          }
         },
       });
+      savedAt = Date.now();
       setResult(payload);
       setPhase("done");
       resetCorrections();
+      const { n_tokens, flagged } = payload.meta;
+      announce(
+        `Done. ${n_tokens} tokens read, ${flagged} ${flagged === 1 ? "needs" : "need"} review.`,
+      );
     } catch (e) {
-      setError(e instanceof Error ? e.message : "The run failed.");
-      setPhase("error");
+      if (e instanceof DOMException && e.name === "AbortError") {
+        setPhase("idle");
+        announce("Stopped. Your file is still selected.");
+      } else {
+        setError(e instanceof Error ? e.message : "The run failed.");
+        setPhase("error");
+      }
     } finally {
+      controller = undefined;
+      setJob(null);
       if (timer) window.clearInterval(timer);
+      refreshHealth();
     }
+  };
+
+  /** Stop the run. The server finishes the page it is reading, then stops
+   *  and deletes the partial result; nothing else is processed. */
+  const cancel = () => {
+    controller?.abort();
   };
 
   const stageCorrection = (correction: CorrectionInput) => {
@@ -171,6 +472,9 @@ export function createStudioState() {
       });
       setLastStats(res.stats);
       setExportResult(null);
+      announce(
+        `Applied: ${res.stats.changed} changed, ${res.stats.confirmed} confirmed. Corrected files are ready.`,
+      );
       setAppliedSigs((prev) => ({
         ...prev,
         ...Object.fromEntries(list.map((c) => [c.index, correctionSig(c)])),
@@ -189,7 +493,9 @@ export function createStudioState() {
     setCorrecting(true);
     setCorrectionError(null);
     try {
-      setExportResult(await exportRunCorrections(p.run_id, list, share));
+      const out = await exportRunCorrections(p.run_id, list, share);
+      setExportResult(out);
+      announce(`corrections.zip is ready with ${out.shared} crops.`);
     } catch (e) {
       setCorrectionError(
         e instanceof Error ? e.message : "Could not build the corrections archive.",
@@ -204,6 +510,7 @@ export function createStudioState() {
     try {
       const out = await clearMemoryApi();
       setMemoryCleared(out.removed);
+      announce(`Correction memory cleared: ${out.removed} records removed.`);
     } catch (e) {
       setCorrectionError(
         e instanceof Error ? e.message : "Could not clear the local memory.",
@@ -230,6 +537,10 @@ export function createStudioState() {
     wantTxt,
     setWantTxt,
     wantMd,
+    pdfSize,
+    flatten,
+    setFlatten,
+    setPdfSize,
     setWantMd,
     advancedOpen,
     setAdvancedOpen,
@@ -242,7 +553,21 @@ export function createStudioState() {
     showBoxes,
     setShowBoxes,
     chooseFile,
+    chooseFiles,
+    openKept,
+    batch,
+    clearBatch,
+    showBatchResult,
+    openKeptFailed: () => {
+      setError("That document is no longer in your library.");
+      setPhase("error");
+    },
+    openedTitle,
+    job,
     clearFile,
+    cancel,
+    notice,
+    restoredAt,
     pickExample,
     start,
     corrections,
@@ -270,6 +595,21 @@ export const EXAMPLE_FILES = [
 ];
 
 export function limitsLine(health: Health | null): string {
-  if (!health) return "≤ 12 MB · first page of PDFs · 60-min retention";
-  return `≤ ${health.limits.max_upload_mb} MB · up to ${health.limits.max_pages} PDF pages · ${health.limits.ttl_minutes}-min retention`;
+  if (!health) return "Up to 12 MB · first page of PDFs · results kept 60 minutes";
+  const { max_upload_mb, max_pages, ttl_minutes } = health.limits;
+  const pages = max_pages > 0 ? `up to ${max_pages} PDF pages` : "any number of PDF pages";
+  const kept = ttl_minutes > 0 ? `results kept ${retentionText(ttl_minutes)}` : "results kept until you delete them";
+  return `Up to ${max_upload_mb} MB · ${pages} · ${kept}`;
+}
+
+/** What the running bar says: queue position, or the server's current step. */
+export function jobLine(job: JobStatus | null): string {
+  if (!job) return "Uploading…";
+  if (job.cancel_requested) return "Stopping after the current page…";
+  if (job.status === "queued") {
+    return job.position && job.position > 1
+      ? `Waiting · ${job.position - 1} ${job.position === 2 ? "file" : "files"} ahead`
+      : "Waiting for the reader…";
+  }
+  return job.stage || "Reading…";
 }

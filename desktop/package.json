@@ -1,0 +1,15 @@
+{
+  "name": "veriscript-desktop",
+  "private": true,
+  "version": "0.1.0",
+  "description": "VeriScript desktop app: a native window around the local studio.",
+  "scripts": {
+    "tauri": "tauri",
+    "dev": "tauri dev",
+    "build": "tauri build",
+    "icons": "tauri icon ../webapp/frontend/public/favicon.svg"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "2.12.4"
+  }
+}

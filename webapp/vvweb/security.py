@@ -9,7 +9,7 @@ from collections import defaultdict, deque
 from typing import Deque, Dict, Optional, Tuple
 
 from fastapi import HTTPException, Request, status
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse
 from starlette.datastructures import MutableHeaders
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
@@ -21,7 +21,8 @@ from .config import settings
 
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff"}
 PDF_EXTENSIONS = {".pdf"}
-ALLOWED_EXTENSIONS = IMAGE_EXTENSIONS | PDF_EXTENSIONS
+BUNDLE_EXTENSIONS = {".veriscript"}  # phone -> desktop bundles (B4), desktop only
+ALLOWED_EXTENSIONS = IMAGE_EXTENSIONS | PDF_EXTENSIONS | BUNDLE_EXTENSIONS
 
 _PDF_MAGIC = b"%PDF-"
 
@@ -38,7 +39,7 @@ class UploadRejected(HTTPException):
 
 def validate_upload(filename: Optional[str], content_type: Optional[str],
                     head: bytes, path: str) -> str:
-    """Return the detected kind ("image" | "pdf") or raise UploadRejected.
+    """Return the detected kind ("image" | "pdf" | "bundle") or raise UploadRejected.
 
     `head` holds the first bytes of the file (magic checks); `path` is the
     saved upload on disk (image decode + pixel budget).
@@ -53,6 +54,16 @@ def validate_upload(filename: Optional[str], content_type: Optional[str],
     if len(head) > 0 and os.path.getsize(path) > settings.max_upload_bytes:
         raise UploadRejected(
             f"File too large. The limit is {settings.max_upload_mb} MB per page.")
+
+    if ext in BUNDLE_EXTENSIONS:
+        if settings.mode != "local":
+            raise UploadRejected("Phone bundles open in VeriScript Desktop.")
+        from veriscript.document.bundle import BundleError, open_bundle
+        try:
+            open_bundle(path)
+        except BundleError as exc:
+            raise UploadRejected(str(exc)) from None
+        return "bundle"
 
     is_pdf = ext in PDF_EXTENSIONS
     if is_pdf:
@@ -347,6 +358,57 @@ class SecurityHeadersMiddleware:
             await send(message)
 
         await self.app(scope, receive, send_with_headers)
+
+
+DESKTOP_COOKIE = "vs_session"
+DESKTOP_HEADER = "x-veriscript-token"
+DESKTOP_SESSION_PATH = "/__desktop/session"
+
+
+class DesktopSessionMiddleware:
+    """Per-launch secret for the desktop app's local server.
+
+    The desktop shell starts the server with a random token and opens
+    ``/__desktop/session?token=…`` in its window. That sets an HttpOnly,
+    SameSite=Strict cookie and redirects to the studio; from then on the
+    page's own requests carry the cookie. The shell's health checks send
+    the token in the ``X-VeriScript-Token`` header instead. Anything else on
+    the machine (another app, a web page probing localhost) gets 403.
+    """
+
+    def __init__(self, app: ASGIApp, token: str) -> None:
+        if len(token) < 32:
+            raise ValueError("desktop token must be at least 32 characters")
+        self.app = app
+        self.token = token
+
+    def _matches(self, value: str | None) -> bool:
+        return bool(value) and secrets.compare_digest(value, self.token)
+
+    async def __call__(self, scope: Scope, receive: Receive,
+                       send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        request = Request(scope)
+        if scope.get("path") == DESKTOP_SESSION_PATH:
+            if not self._matches(request.query_params.get("token")):
+                await _plain(403, "Forbidden")(scope, receive, send)
+                return
+            response = RedirectResponse("/studio", status_code=303)
+            response.set_cookie(DESKTOP_COOKIE, self.token, httponly=True,
+                                samesite="strict", path="/")
+            await response(scope, receive, send)
+            return
+        if (self._matches(request.cookies.get(DESKTOP_COOKIE))
+                or self._matches(request.headers.get(DESKTOP_HEADER))):
+            await self.app(scope, receive, send)
+            return
+        await _plain(403, "Forbidden")(scope, receive, send)
+
+
+def _plain(status_code: int, text: str) -> PlainTextResponse:
+    return PlainTextResponse(text, status_code=status_code)
 
 
 async def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:

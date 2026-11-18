@@ -1,0 +1,69 @@
+{
+  "platform": "Windows-11-10.0.26300-SP0",
+  "python": "3.13.7",
+  "packages": {
+    "rapidocr": "3.9.2",
+    "onnxruntime-directml": "1.24.4",
+    "opencv-python": "4.12.0.88"
+  },
+  "android": "API 35 x86_64, ARM64 native bridge",
+  "vflat_version": "1.16.8.260930.6c4b190386",
+  "competitor_outputs": "none; not ranked",
+  "mobile_onnxruntime": "1.24.3",
+  "flutter": "3.44.9",
+  "android_test_avd": "VeriScript_P3_API_35",
+  "mobile_conditions": {
+    "active_default_network": "none",
+    "auto_rotate": true,
+    "digit_checks": true,
+    "engine_order": [
+      "mlkit",
+      "rapidocr"
+    ],
+    "separate_package": "com.veriscript.veriscript_mobile.benchmark",
+    "timeout_minutes": 45,
+    "result": "All tests passed; 8m37s"
+  },
+  "desktop_conditions": {
+    "intra_op_threads": 2,
+    "inter_op_threads": 1,
+    "deva_modes": [
+      "off",
+      "auto"
+    ]
+  },
+  "competitor_avd": {
+    "name": "VeriScript_OCR_Play_API_35",
+    "image": "system-images;android-35;google_apis_playstore;x86_64",
+    "revision": 9,
+    "official_zip_sha1": "2f0054868e6aab3c098acd3decba17a82aed4176",
+    "status": "vFlat installed, launch redirected through license check to Play sign-in; Scandra Play listing reached sign-in"
+  },
+  "release_build": {
+    "result": "success",
+    "gradle_seconds": 295.6,
+    "artifacts": [
+      {
+        "abi": "arm64-v8a",
+        "bytes": 121809715,
+        "sha256": "e8a506f1086a6f1329124f26cf82c2d492abad71558c32c1db86fde8f49cb268",
+        "model_hashes_verified": 4,
+        "license_notices_verified": 3,
+        "internet_permission": false,
+        "package": "com.veriscript.veriscript_mobile",
+        "signing": "development debug key"
+      },
+      {
+        "abi": "x86_64",
+        "bytes": 161721122,
+        "sha256": "0bfb607b944fef33f0ab3c2554ab9bb039938ee08c2657732120a5b253a71443",
+        "model_hashes_verified": 4,
+        "license_notices_verified": 3,
+        "internet_permission": false,
+        "package": "com.veriscript.veriscript_mobile",
+        "signing": "development debug key"
+      }
+    ],
+    "runtime_acceptance": "paired debug integration; release APK execution not tested"
+  }
+}

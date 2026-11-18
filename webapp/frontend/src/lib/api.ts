@@ -4,8 +4,11 @@ import type {
   CorrectionInput,
   ExportResponse,
   Health,
+  JobStatus,
   Lang,
+  LibraryDoc,
   OcrEngine,
+  PdfSize,
   RunPayload,
 } from "./types";
 
@@ -19,20 +22,48 @@ class ApiError extends Error {
   }
 }
 
+/** What to do next, by HTTP status, when the server's message lacks it. */
+const NEXT_STEP: Record<number, string> = {
+  408: "The connection was too slow. Try again.",
+  413: "Use a smaller file, or split the PDF into parts.",
+  415: "Use a PNG, JPG, WebP, TIFF or PDF file.",
+  429: "Wait a moment, then try again.",
+  500: "Try again. If it keeps failing, try a cleaner scan or another engine under More options.",
+  502: "The studio server is not responding. Check that it is still running.",
+  503: "Try again in a moment.",
+  504: "The page took too long. Try a smaller page, or turn off the extra files under More options.",
+};
+
 async function parseError(res: Response): Promise<ApiError> {
-  let message = `Request failed (${res.status})`;
+  let message = "";
   try {
-    const data = (await res.json()) as { error?: string };
-    if (data?.error) message = data.error;
+    const data = (await res.json()) as { error?: string; detail?: string };
+    message = data?.error || data?.detail || "";
   } catch {
-    /* keep the default */
+    /* not JSON: fall back to the status hint */
   }
+  const hint = NEXT_STEP[res.status];
+  if (!message) message = hint ?? `The request failed (HTTP ${res.status}). Try again.`;
+  else if (hint && !/try|use |wait|split/i.test(message)) message = `${message} ${hint}`;
   const retry = Number(res.headers.get("retry-after") || 0) || undefined;
   return new ApiError(message, res.status, retry);
 }
 
+/** fetch() that turns a dropped connection into a sentence. */
+async function request(input: string, init?: RequestInit): Promise<Response> {
+  try {
+    return await fetch(input, init);
+  } catch (e) {
+    if (e instanceof DOMException && e.name === "AbortError") throw e;
+    throw new ApiError(
+      "Could not reach the studio server. Check that it is still running, then try again.",
+      0,
+    );
+  }
+}
+
 export async function fetchHealth(): Promise<Health> {
-  const res = await fetch("/api/health");
+  const res = await request("/api/health");
   if (!res.ok) throw await parseError(res);
   return (await res.json()) as Health;
 }
@@ -44,12 +75,12 @@ export interface RestoreOptions {
   allPages: boolean;
   autoRotate: boolean;
   outputs: { overlay: boolean; pdf: boolean; txt: boolean; md: boolean };
+  pdfSize?: PdfSize;
+  /** F1: read the photo and the flattened page, keep the better reading. */
+  flatten?: boolean;
 }
 
-export async function runRestore(
-  file: File | Blob,
-  opts: RestoreOptions,
-): Promise<RunPayload> {
+function restoreForm(file: File | Blob, opts: RestoreOptions): FormData {
   const body = new FormData();
   const name = file instanceof File ? file.name : "example.png";
   body.append("file", file, name);
@@ -62,10 +93,88 @@ export async function runRestore(
   body.append("pdf", opts.outputs.pdf ? "1" : "0");
   body.append("txt", opts.outputs.txt ? "1" : "0");
   body.append("md", opts.outputs.md ? "1" : "0");
+  body.append("pdf_size", opts.pdfSize ?? "standard");
+  body.append("flatten", opts.flatten ? "1" : "0");
+  return body;
+}
 
-  const res = await fetch("/api/restore", { method: "POST", body });
+/** One-shot: upload and wait for the result (no progress). */
+export async function runRestore(
+  file: File | Blob,
+  opts: RestoreOptions,
+  signal?: AbortSignal,
+): Promise<RunPayload> {
+  const res = await request("/api/restore", {
+    method: "POST",
+    body: restoreForm(file, opts),
+    signal,
+  });
   if (!res.ok) throw await parseError(res);
   return (await res.json()) as RunPayload;
+}
+
+const sleep = (ms: number, signal?: AbortSignal) =>
+  new Promise<void>((resolve, reject) => {
+    const timer = window.setTimeout(resolve, ms);
+    signal?.addEventListener(
+      "abort",
+      () => {
+        window.clearTimeout(timer);
+        reject(new DOMException("Aborted", "AbortError"));
+      },
+      { once: true },
+    );
+  });
+
+export async function cancelJob(jobId: string): Promise<JobStatus | null> {
+  try {
+    const res = await request(`/api/jobs/${jobId}`, { method: "DELETE" });
+    return res.ok ? ((await res.json()) as JobStatus) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Upload as a background job and follow it until it finishes.
+ *
+ *  `onProgress` gets every status (queued position, "Reading page 3 of 12").
+ *  Aborting the signal cancels the job on the server, which stops it between
+ *  pages, then rejects with an AbortError. */
+export async function runJob(
+  file: File | Blob,
+  opts: RestoreOptions,
+  { signal, onProgress }: { signal?: AbortSignal; onProgress?: (s: JobStatus) => void } = {},
+): Promise<RunPayload> {
+  const res = await request("/api/jobs", {
+    method: "POST",
+    body: restoreForm(file, opts),
+    signal,
+  });
+  if (!res.ok) throw await parseError(res);
+  let status = (await res.json()) as JobStatus;
+  const jobId = status.job_id;
+  try {
+    for (;;) {
+      onProgress?.(status);
+      if (status.status === "done" && status.result) return status.result;
+      if (status.status === "failed") {
+        throw new ApiError(
+          status.error || "The run failed. Try again.",
+          status.error_status ?? 500,
+        );
+      }
+      if (status.status === "cancelled") throw new DOMException("Cancelled", "AbortError");
+      await sleep(status.status === "queued" ? 1000 : 400, signal);
+      const next = await request(`/api/jobs/${jobId}`, { signal });
+      if (!next.ok) throw await parseError(next);
+      status = (await next.json()) as JobStatus;
+    }
+  } catch (e) {
+    if (e instanceof DOMException && e.name === "AbortError" && signal?.aborted) {
+      await cancelJob(jobId);
+    }
+    throw e;
+  }
 }
 
 export function formatBytes(bytes: number): string {
@@ -79,7 +188,7 @@ export async function correctRun(
   runId: string,
   corrections: CorrectionInput[],
 ): Promise<CorrectResponse> {
-  const res = await fetch(`/api/runs/${runId}/correct`, {
+  const res = await request(`/api/runs/${runId}/correct`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ corrections }),
@@ -88,13 +197,25 @@ export async function correctRun(
   return (await res.json()) as CorrectResponse;
 }
 
+/** E5: a password-protected (AES-256) copy of one of the run's PDFs.
+ *  The server builds it in memory and keeps neither the copy nor the password. */
+export async function protectPdf(runId: string, file: string, password: string): Promise<Blob> {
+  const res = await request(`/api/runs/${runId}/protect`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ file, password }),
+  });
+  if (!res.ok) throw await parseError(res);
+  return await res.blob();
+}
+
 /** Explicit, privacy-first training export: only `share` indices are packed. */
 export async function exportRunCorrections(
   runId: string,
   corrections: CorrectionInput[],
   share: number[],
 ): Promise<ExportResponse> {
-  const res = await fetch(`/api/runs/${runId}/corrections/export`, {
+  const res = await request(`/api/runs/${runId}/corrections/export`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ corrections, share }),
@@ -105,9 +226,46 @@ export async function exportRunCorrections(
 
 /** track D2: clear the local correction memory (opt-in, local-only). */
 export async function clearMemory(): Promise<{ removed: number; enabled: boolean }> {
-  const res = await fetch("/api/memory/clear", { method: "POST" });
+  const res = await request("/api/memory/clear", { method: "POST" });
   if (!res.ok) throw await parseError(res);
   return (await res.json()) as { removed: number; enabled: boolean };
+}
+
+/** Desktop only: versions, limits, recent jobs and warnings, as plain text.
+ *  Nothing is sent anywhere; the person copies it into a bug report. */
+export async function fetchDiagnostics(): Promise<string> {
+  const res = await request("/api/diagnostics");
+  if (!res.ok) throw await parseError(res);
+  return ((await res.json()) as { text: string }).text;
+}
+
+/** Desktop library: kept documents, newest first; `q` searches title + text. */
+export async function fetchLibrary(q = ""): Promise<LibraryDoc[]> {
+  const res = await request(`/api/library?q=${encodeURIComponent(q)}`);
+  if (!res.ok) throw await parseError(res);
+  return ((await res.json()) as { documents: LibraryDoc[] }).documents;
+}
+
+/** A kept result, in the same shape a finished run returns. */
+export async function fetchRunSummary(runId: string): Promise<RunPayload & { title: string }> {
+  const res = await request(`/api/runs/${encodeURIComponent(runId)}/summary`);
+  if (!res.ok) throw await parseError(res);
+  return (await res.json()) as RunPayload & { title: string };
+}
+
+export async function renameRun(runId: string, title: string): Promise<string> {
+  const res = await request(`/api/runs/${encodeURIComponent(runId)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title }),
+  });
+  if (!res.ok) throw await parseError(res);
+  return ((await res.json()) as { title: string }).title;
+}
+
+export async function deleteRun(runId: string): Promise<void> {
+  const res = await request(`/api/runs/${encodeURIComponent(runId)}`, { method: "DELETE" });
+  if (!res.ok) throw await parseError(res);
 }
 
 export { ApiError };

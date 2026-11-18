@@ -30,6 +30,7 @@ def _harden(path: str, mode: int) -> None:
 
 
 PUBLIC_FILES = {
+    "book.pdf": {"media": "application/pdf", "download": "book.pdf"},
     "restored.png": {"media": "image/png", "download": "restored.png"},
     "overlay.png": {"media": "image/png", "download": "overlay.png"},
     "searchable.pdf": {"media": "application/pdf", "download": "searchable.pdf"},
@@ -39,6 +40,10 @@ PUBLIC_FILES = {
     "combined.txt": {"media": "text/plain; charset=utf-8", "download": "combined.txt"},
     "combined.md": {"media": "text/markdown; charset=utf-8", "download": "combined.md"},
     "ocr.json": {"media": "application/json", "download": "ocr.json"},
+    "tables.xlsx": {"media": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    "download": "tables.xlsx"},
+    "tables.csv": {"media": "text/csv; charset=utf-8", "download": "tables.csv"},
+    "phone_reading.json": {"media": "application/json", "download": "phone_reading.json"},
     "corrected.pdf": {"media": "application/pdf", "download": "corrected.pdf"},
     "corrected.txt": {"media": "text/plain; charset=utf-8", "download": "corrected.txt"},
     "corrected.md": {"media": "text/markdown; charset=utf-8", "download": "corrected.md"},
@@ -69,7 +74,9 @@ class RunStore:
 
     def write_manifest(self, run_id: str, manifest: Dict) -> None:
         manifest = dict(manifest)
-        manifest["expires_at"] = int(time.time()) + self.ttl_seconds
+        # ttl 0 = kept until the user deletes it (desktop app).
+        manifest["expires_at"] = (int(time.time()) + self.ttl_seconds
+                                  if self.ttl_seconds > 0 else None)
         path = os.path.join(self.run_dir(run_id), "manifest.json")
         with open(path, "w", encoding="utf-8") as f:
             json.dump(manifest, f, ensure_ascii=False, indent=1)
@@ -93,7 +100,10 @@ class RunStore:
         return path
 
     def prune(self) -> int:
-        """Delete runs past their TTL (or without a manifest). Returns count."""
+        """Delete runs past their TTL (or without a manifest). Returns count.
+
+        With ttl 0 (keep forever) only abandoned runs go: no manifest and
+        untouched for a day (an upload that never finished)."""
         now = time.time()
         removed = 0
         try:
@@ -105,11 +115,16 @@ class RunStore:
             if not os.path.isdir(path) or not RUN_ID_RE.match(entry):
                 continue
             manifest = self.read_manifest(entry)
-            expires = (manifest or {}).get("expires_at", 0)
             try:
                 mtime = os.path.getmtime(path)
             except OSError:
                 continue
+            if self.ttl_seconds <= 0:
+                if manifest is None and now > mtime + 86400:
+                    shutil.rmtree(path, ignore_errors=True)
+                    removed += 1
+                continue
+            expires = (manifest or {}).get("expires_at") or 0
             if now > max(expires, mtime + self.ttl_seconds):
                 shutil.rmtree(path, ignore_errors=True)
                 removed += 1

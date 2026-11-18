@@ -1,26 +1,97 @@
-import { For, Show } from "solid-js";
+import { createEffect, createSignal, For, Show } from "solid-js";
+import { fetchDiagnostics } from "../lib/api";
+import { announce } from "../lib/announce";
+import { isLocal } from "../lib/health";
 import { DropZone } from "./DropZone";
-import { EXAMPLE_FILES, limitsLine, type StudioState } from "../lib/studio-state";
-import type { Lang, OcrEngine } from "../lib/types";
+import { EXAMPLE_FILES, jobLine, limitsLine, type StudioState } from "../lib/studio-state";
+import type { Lang, OcrEngine, PdfSize } from "../lib/types";
 
 /** The studio controls: drop a page, pick an example, set options, run.
  *  `compact` is the homepage hero treatment. */
 export function StudioPanel(props: { state: StudioState; compact?: boolean }) {
   const s = props.state;
   const running = () => s.phase() === "running";
+  const suffix = props.compact ? "hero" : "page";
+  let alertEl: HTMLDivElement | undefined;
+  const [copied, setCopied] = createSignal(false);
+
+  /** Desktop: put the local diagnostics report on the clipboard. */
+  const copyDiagnostics = async () => {
+    try {
+      await navigator.clipboard.writeText(await fetchDiagnostics());
+      setCopied(true);
+      announce("Diagnostics copied. Paste them into your bug report.");
+    } catch {
+      announce("Could not copy the diagnostics.");
+    }
+  };
+
+  // Move focus to a new error so keyboard and screen-reader users land on it.
+  createEffect(() => {
+    if (s.phase() === "error" && s.error()) queueMicrotask(() => alertEl?.focus());
+  });
 
   return (
     <div class="panel">
-      <DropZone
-        file={s.file()}
-        onFile={s.chooseFile}
-        onClear={s.clearFile}
-        disabled={running()}
-      />
+      <Show
+        when={s.batch().length > 0}
+        fallback={
+          <DropZone
+            file={s.file()}
+            onFiles={s.chooseFiles}
+            onClear={s.clearFile}
+            disabled={running()}
+            multiple={isLocal()}
+            desktop={isLocal()}
+          />
+        }
+      >
+        <div class="batch">
+          <div class="batch__head">
+            <h2 class="batch__title">{s.batch().length} files</h2>
+            <button
+              class="btn btn--ghost btn--small"
+              type="button"
+              disabled={running()}
+              onClick={s.clearBatch}
+            >
+              Clear
+            </button>
+          </div>
+          <ol class="batch__list" aria-label="Files to read">
+            <For each={s.batch()}>
+              {(item) => (
+                <li class="batch__item" data-status={item.status}>
+                  <span class="batch__name">{item.file.name}</span>
+                  <span class="batch__stage">{item.stage}</span>
+                  <Show when={item.status === "done" && item.runId}>
+                    <button
+                      class="btn btn--ghost btn--small"
+                      type="button"
+                      onClick={() => void s.showBatchResult(item.runId!)}
+                    >
+                      Show<span class="visually-hidden"> {item.file.name}</span>
+                    </button>
+                  </Show>
+                </li>
+              )}
+            </For>
+          </ol>
+          <p class="field__hint">
+            Each finished file is kept in your Library.
+          </p>
+        </div>
+      </Show>
+
+      <Show when={s.notice()}>
+        <p class="field__hint" role="status">
+          {s.notice()}
+        </p>
+      </Show>
 
       <div class="panel__examples">
-        <span class="eyebrow">or try a real example</span>
-        <div class="example-chips">
+        <p class="field__hint">Or try a real example</p>
+        <div class="button-row">
           <For each={EXAMPLE_FILES}>
             {(ex) => (
               <button
@@ -38,11 +109,11 @@ export function StudioPanel(props: { state: StudioState; compact?: boolean }) {
 
       <div class="panel__options">
         <div class="field">
-          <label class="field__label" for={`lang-${props.compact ? "hero" : "page"}`}>
+          <label class="field__label" for={`lang-${suffix}`}>
             Language
           </label>
           <select
-            id={`lang-${props.compact ? "hero" : "page"}`}
+            id={`lang-${suffix}`}
             class="select"
             value={s.lang()}
             disabled={running()}
@@ -67,103 +138,143 @@ export function StudioPanel(props: { state: StudioState; compact?: boolean }) {
         <button
           class="btn btn--ghost btn--small"
           type="button"
+          aria-expanded={s.advancedOpen()}
+          aria-controls={`options-${suffix}`}
           disabled={running()}
           onClick={() => s.setAdvancedOpen(!s.advancedOpen())}
         >
-          {s.advancedOpen() ? "hide options" : "more options"}
+          {s.advancedOpen() ? "Fewer options" : "More options"}
         </button>
       </div>
 
-      <Show when={s.advancedOpen()}>
-        <div class="stack-16">
+      <div class="stack-16" id={`options-${suffix}`} hidden={!s.advancedOpen()}>
+        <div class="field">
+          <label
+            class="field__label"
+            for={`ocr-${suffix}`}
+          >
+            OCR engine
+          </label>
+          <select
+            id={`ocr-${suffix}`}
+            class="select"
+            value={s.ocr()}
+            disabled={running()}
+            onChange={(e) => s.setOcr(e.currentTarget.value as OcrEngine)}
+          >
+            <option value="auto">Auto (best available)</option>
+            <option value="rapidocr">RapidOCR (recommended)</option>
+            <option value="tesseract">Tesseract (optional install)</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label class="field__label" for={`pdfsize-${suffix}`}>
+            PDF size
+          </label>
+          <select
+            id={`pdfsize-${suffix}`}
+            class="select"
+            value={s.pdfSize()}
+            disabled={running()}
+            aria-describedby={`pdfsize-hint-${suffix}`}
+            onChange={(e) => s.setPdfSize(e.currentTarget.value as PdfSize)}
+          >
+            <option value="standard">Standard (sharp, compact)</option>
+            <option value="small">Small (for email, 150 DPI)</option>
+            <option value="archive">Archive (PDF/A, original pixels, large)</option>
+          </select>
+          <p class="field__hint" id={`pdfsize-hint-${suffix}`}>
+            The searchable text is the same in every size; only the page picture changes.
+          </p>
+        </div>
+
+        <Show when={s.health()?.limits.flatten}>
           <div class="field">
-            <label
-              class="field__label"
-              for={`ocr-${props.compact ? "hero" : "page"}`}
-            >
-              OCR engine
+            <label class="checkbox">
+              <input
+                type="checkbox"
+                checked={s.flatten()}
+                disabled={running()}
+                aria-describedby={`flatten-hint-${suffix}`}
+                onChange={(e) => s.setFlatten(e.currentTarget.checked)}
+              />
+              <span>Flatten curved or folded pages</span>
             </label>
-            <select
-              id={`ocr-${props.compact ? "hero" : "page"}`}
-              class="select"
-              value={s.ocr()}
-              disabled={running()}
-              onChange={(e) => s.setOcr(e.currentTarget.value as OcrEngine)}
-            >
-              <option value="auto">Auto (best available)</option>
-              <option value="rapidocr">RapidOCR (recommended)</option>
-              <option value="tesseract">Tesseract (optional install)</option>
-            </select>
+            <p class="field__hint" id={`flatten-hint-${suffix}`}>
+              For photos of book pages and folded sheets. Each page is read twice, as taken and
+              flattened, and the clearer reading is kept, so reading takes about twice as long.
+            </p>
           </div>
+        </Show>
 
-          <label class="checkbox">
-            <input
-              type="checkbox"
-              checked={s.autoRotate()}
-              disabled={running()}
-              onChange={(e) => s.setAutoRotate(e.currentTarget.checked)}
-            />
-            <span>Auto-rotate sideways / upside-down pages</span>
-          </label>
+        <label class="checkbox">
+          <input
+            type="checkbox"
+            checked={s.autoRotate()}
+            disabled={running()}
+            onChange={(e) => s.setAutoRotate(e.currentTarget.checked)}
+          />
+          <span>Auto-rotate sideways / upside-down pages</span>
+        </label>
 
-          <label class="checkbox">
-            <input
-              type="checkbox"
-              checked={s.allPages()}
-              disabled={running()}
-              onChange={(e) => s.setAllPages(e.currentTarget.checked)}
-            />
-            <span>All pages of a PDF (first page by default)</span>
-          </label>
+        <label class="checkbox">
+          <input
+            type="checkbox"
+            checked={s.allPages()}
+            disabled={running()}
+            onChange={(e) => s.setAllPages(e.currentTarget.checked)}
+          />
+          <span>All pages of a PDF (first page by default)</span>
+        </label>
 
-          <div class="field">
-            <span class="field__label">Files to write</span>
-            <div class="example-chips">
-              <label class="checkbox">
-                <input
-                  type="checkbox"
-                  checked={s.wantOverlay()}
-                  disabled={running()}
-                  onChange={(e) => s.setWantOverlay(e.currentTarget.checked)}
-                />
-                <span>overlay</span>
-              </label>
-              <label class="checkbox">
-                <input
-                  type="checkbox"
-                  checked={s.wantPdf()}
-                  disabled={running()}
-                  onChange={(e) => s.setWantPdf(e.currentTarget.checked)}
-                />
-                <span>searchable PDF</span>
-              </label>
-              <label class="checkbox">
-                <input
-                  type="checkbox"
-                  checked={s.wantTxt()}
-                  disabled={running()}
-                  onChange={(e) => s.setWantTxt(e.currentTarget.checked)}
-                />
-                <span>transcript</span>
-              </label>
-              <label class="checkbox">
-                <input
-                  type="checkbox"
-                  checked={s.wantMd()}
-                  disabled={running()}
-                  onChange={(e) => s.setWantMd(e.currentTarget.checked)}
-                />
-                <span>markdown</span>
-              </label>
-            </div>
+        <div class="field">
+          <span class="field__label">Files to write</span>
+          <div class="button-row">
+            <label class="checkbox">
+              <input
+                type="checkbox"
+                checked={s.wantOverlay()}
+                disabled={running()}
+                onChange={(e) => s.setWantOverlay(e.currentTarget.checked)}
+              />
+              <span>Overlay</span>
+            </label>
+            <label class="checkbox">
+              <input
+                type="checkbox"
+                checked={s.wantPdf()}
+                disabled={running()}
+                onChange={(e) => s.setWantPdf(e.currentTarget.checked)}
+              />
+              <span>Searchable PDF</span>
+            </label>
+            <label class="checkbox">
+              <input
+                type="checkbox"
+                checked={s.wantTxt()}
+                disabled={running()}
+                onChange={(e) => s.setWantTxt(e.currentTarget.checked)}
+              />
+              <span>Transcript</span>
+            </label>
+            <label class="checkbox">
+              <input
+                type="checkbox"
+                checked={s.wantMd()}
+                disabled={running()}
+                onChange={(e) => s.setWantMd(e.currentTarget.checked)}
+              />
+              <span>Markdown</span>
+            </label>
           </div>
         </div>
-      </Show>
+      </div>
 
       <Show when={!props.compact}>
         <p class="field__hint">
-          Picking the wrong script lowers accuracy — it is not auto-detected per
-          token. Devanagari models download once on first use, then run offline.
+          The wrong script lowers accuracy; it is not detected per token. Devanagari models
+          download once, then run offline.
         </p>
       </Show>
 
@@ -171,29 +282,63 @@ export function StudioPanel(props: { state: StudioState; compact?: boolean }) {
         <button
           class="btn btn--primary btn--block"
           type="button"
-          disabled={!s.file() || running()}
+          disabled={(!s.file() && s.batch().length === 0) || running()}
           onClick={() => void s.start()}
         >
-          <Show when={!running()} fallback={<>Reading… {s.elapsed().toFixed(1)}s</>}>
-            Restore &amp; read <span class="arrow">→</span>
-          </Show>
+          {running()
+            ? "Reading…"
+            : s.batch().length > 0
+              ? `Read ${s.batch().length} files`
+              : "Restore and read"}
         </button>
         <Show when={running()}>
-          <div class="progress" aria-hidden="true">
-            <div class="progress__fill" />
-          </div>
+          <button class="btn btn--ghost btn--small" type="button" onClick={() => s.cancel()}>
+            Cancel
+          </button>
+          <Show
+            when={(s.job()?.pages ?? 0) > 1 && s.job()?.status === "running"}
+            fallback={
+              <div class="progress" role="progressbar" aria-label="Reading the page">
+                <div class="progress__fill" />
+              </div>
+            }
+          >
+            <div
+              class="progress progress--determinate"
+              role="progressbar"
+              aria-label="Pages read"
+              aria-valuemin={0}
+              aria-valuemax={s.job()!.pages}
+              aria-valuenow={Math.max(0, s.job()!.page - 1)}
+            >
+              <div
+                class="progress__fill"
+                style={{ width: `${(100 * Math.max(0, s.job()!.page - 1)) / s.job()!.pages}%` }}
+              />
+            </div>
+          </Show>
+          {/* Polled ~2×/s: visible only; page changes are announced. */}
+          <span class="runbar__elapsed" aria-hidden="true">
+            {jobLine(s.job())} · {s.elapsed().toFixed(0)} s
+          </span>
         </Show>
         <div class="runbar__status">
           <span>{limitsLine(s.health())}</span>
           <Show when={s.health()?.busy}>
-            <span>worker busy — you may queue</span>
+            <span>The engine is busy. Your page will start when it is free.</span>
           </Show>
         </div>
       </div>
 
       <Show when={s.phase() === "error" && s.error()}>
-        <div class="alert" role="alert">
+        <div class="alert" role="alert" tabindex={-1} ref={alertEl}>
           {s.error()}
+          <Show when={isLocal()}>
+            {" "}
+            <button class="btn btn--ghost btn--small" type="button" onClick={copyDiagnostics}>
+              {copied() ? "Diagnostics copied" : "Copy diagnostics"}
+            </button>
+          </Show>
         </div>
       </Show>
     </div>
